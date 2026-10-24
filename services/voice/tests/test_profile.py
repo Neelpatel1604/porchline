@@ -16,6 +16,7 @@ from porchline_voice.profile import (  # noqa: E402
     normalize_category,
     normalize_label,
     normalize_phone,
+    prepare_for_publish,
     validate_confirmed,
 )
 
@@ -30,12 +31,13 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(model.businessName, "Rose Street Barber")
         self.assertTrue(model.confirmed)
 
-    def test_missing_hours_blocks_publish(self) -> None:
-        draft = dict(FIXTURE)
-        draft.pop("hours")
-        self.assertIn("hours", missing_for_publish(draft))
-        with self.assertRaises(ValueError):
-            validate_confirmed(draft)
+    def test_sparse_profile_can_publish(self) -> None:
+        draft = empty_profile("call-1")
+        draft["confirmed"] = True
+        self.assertEqual(missing_for_publish(draft), [])
+        model = validate_confirmed(draft)
+        self.assertEqual(model.businessName, "Local business")
+        self.assertEqual(model.siteSlug, "local-business")
 
     def test_unconfirmed_profile_is_refused(self) -> None:
         draft = dict(FIXTURE)
@@ -44,12 +46,13 @@ class ProfileTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_confirmed(draft)
 
-    def test_empty_draft_lists_required_gaps(self) -> None:
-        missing = missing_for_publish(empty_profile("call-1"))
-        self.assertIn("businessName", missing)
-        self.assertIn("category", missing)
-        self.assertIn("services", missing)
-        self.assertIn("subdomainLabel", missing)
+    def test_empty_draft_has_no_required_gaps(self) -> None:
+        self.assertEqual(missing_for_publish(empty_profile("call-1")), [])
+
+    def test_prepare_fills_missing_site_slug(self) -> None:
+        prepared = prepare_for_publish({"businessName": "Neel Builds", "confirmed": True, "sourceCallId": "x"})
+        self.assertEqual(prepared["siteSlug"], "neel-builds")
+        self.assertNotIn("subdomainLabel", prepared)
 
     def test_label_normalization(self) -> None:
         self.assertEqual(normalize_label("Rose Barber!"), "rose-barber")

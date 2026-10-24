@@ -28,7 +28,11 @@
     }
   ],
   "highlight": "Walk-ins welcome",
-  "subdomainLabel": "rose-barber",
+  "vibe": "classic and welcoming",
+  "look": "warm wood and cream",
+  "heroLine": "Sharp cuts on Queen Street",
+  "audience": "neighbors who want a reliable neighborhood barber",
+  "siteSlug": "rose-barber",
   "confirmed": true,
   "sourceCallId": "fixture-rose-barber"
 }

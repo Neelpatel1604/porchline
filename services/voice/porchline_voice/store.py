@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -31,8 +31,6 @@ class Store:
               netlify_site_id TEXT,
               preview_url TEXT,
               hostname TEXT,
-              cname_target TEXT,
-              cloudflare_record_id TEXT,
               error TEXT,
               call_started_at TEXT,
               created_at TEXT NOT NULL,
@@ -45,12 +43,41 @@ class Store:
         if "call_ended_at" not in columns:
             self._conn.execute("ALTER TABLE projects ADD COLUMN call_ended_at TEXT")
             self._conn.commit()
+        # Older DBs may still have unused cname_target / cloudflare_record_id columns.
+
+    def close_stale_open_calls(self, max_idle_seconds: int = 90) -> None:
+        """Mark abandoned sockets as ended so the dashboard never shows a fake live call."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=max_idle_seconds)).isoformat()
+        self._conn.execute(
+            """
+            UPDATE projects
+            SET call_ended_at = COALESCE(call_ended_at, ?), updated_at = ?
+            WHERE call_ended_at IS NULL
+              AND call_started_at IS NOT NULL
+              AND updated_at < ?
+            """,
+            (_now(), _now(), cutoff),
+        )
+        self._conn.commit()
 
     def current(self) -> dict[str, Any] | None:
+        self.close_stale_open_calls()
         row = self._conn.execute(
             "SELECT * FROM projects ORDER BY updated_at DESC LIMIT 1"
         ).fetchone()
         return self._row(row) if row else None
+
+    def list_projects(self, limit: int = 50) -> list[dict[str, Any]]:
+        self.close_stale_open_calls()
+        rows = self._conn.execute(
+            """
+            SELECT * FROM projects
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [self._row(row) for row in rows]
 
     def get(self, project_id: str) -> dict[str, Any] | None:
         row = self._conn.execute(
@@ -59,10 +86,12 @@ class Store:
         return self._row(row) if row else None
 
     def find_open_by_caller(self, caller_id: str) -> dict[str, Any] | None:
+        """Active call for this number (call not marked ended yet). Used only for hangup status."""
         row = self._conn.execute(
             """
             SELECT * FROM projects
             WHERE caller_id = ?
+              AND call_ended_at IS NULL
             ORDER BY updated_at DESC
             LIMIT 1
             """,
@@ -126,7 +155,7 @@ class Store:
         self._conn.execute(
             """
             UPDATE projects
-            SET call_started_at = ?, call_ended_at = NULL, status = 'draft', updated_at = ?
+            SET call_started_at = ?, call_ended_at = NULL, updated_at = ?
             WHERE id = ?
             """,
             (now, now, project_id),
@@ -158,8 +187,6 @@ class Store:
 
     def save_deploy(self, project_id: str, result: dict[str, Any]) -> dict[str, Any]:
         status = "deployed" if result.get("status") == "deployed" else "error"
-        if result.get("dnsStatus") == "https_ready":
-            status = "dns_ready"
         self._conn.execute(
             """
             UPDATE projects SET
@@ -168,8 +195,6 @@ class Store:
               netlify_site_id = ?,
               preview_url = ?,
               hostname = ?,
-              cname_target = ?,
-              cloudflare_record_id = ?,
               updated_at = ?
             WHERE id = ?
             """,
@@ -179,8 +204,6 @@ class Store:
                 result.get("netlifySiteId"),
                 result.get("previewUrl"),
                 result.get("hostname"),
-                result.get("cnameTarget"),
-                result.get("cloudflareRecordId"),
                 _now(),
                 project_id,
             ),
@@ -201,8 +224,6 @@ class Store:
             "netlifySiteId": row["netlify_site_id"],
             "previewUrl": row["preview_url"],
             "hostname": row["hostname"],
-            "cnameTarget": row["cname_target"],
-            "cloudflareRecordId": row["cloudflare_record_id"],
             "error": row["error"],
             "callStartedAt": row["call_started_at"],
             "callEndedAt": row["call_ended_at"],

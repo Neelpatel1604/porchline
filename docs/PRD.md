@@ -14,11 +14,11 @@ This document is the build spec. It names the stack, the repo layout, and the or
 
 Porchline turns a phone conversation into a hosted website for a local business.
 
-A business owner calls a Porchline number. **Higgs Realtime** interviews them, and tools save a structured profile. When the owner confirms, the operator app renders a one-page static site, deploys it to **Netlify**, and creates the subdomain **CNAME** in **Cloudflare**.
+A business owner calls a Porchline number. **Higgs Realtime** interviews them, and tools save a structured profile. When the owner confirms, Gemini designs a one-page static site and the operator app deploys it to **Netlify**.
 
-The parent domain is `PORCHLINE_PARENT_DOMAIN` in the environment. That zone already lives in Cloudflare. v1 does not buy or transfer domains, and it does not change the zone apex.
+v1 uses the default Netlify URL only. It does not create custom subdomains or write Cloudflare DNS.
 
-**One-line pitch:** A local shop talks for about ten minutes and gets a website on their subdomain.
+**One-line pitch:** A local shop talks for about ten minutes and gets a website on a Netlify link.
 
 ---
 
@@ -29,9 +29,7 @@ Most local businesses — barbers, restaurants, repair shops, tutors, clinics, f
 - Owners will not fill a long form.
 - They will answer a phone call while they are at the shop.
 - The facts a simple page needs are the same every time: name, what they sell, hours, address, phone, a short story, and a few services.
-- After the site exists, attaching a subdomain is a separate step that gets dropped.
-
-Porchline collapses intake, generation, hosting, and the DNS instruction into one flow the owner can finish by talking.
+Porchline collapses intake, generation, and hosting into one flow the owner can finish by talking.
 
 ---
 
@@ -39,9 +37,9 @@ Porchline collapses intake, generation, hosting, and the DNS instruction into on
 
 **Owner.** Takes the phone call. Knows the hours, services, and neighborhood. Says yes or no when the agent reads the profile back.
 
-**Operator.** Runs the dashboard during the hackathon. Watches the profile fill in. Publish deploys to Netlify and writes the Cloudflare record. The operator steps in only if that write fails.
+**Operator.** Runs the dashboard during the hackathon. Watches the profile fill in. Publish deploys to Netlify. The operator steps in only if that deploy fails.
 
-**Visitor.** Opens the subdomain and needs hours, address, phone, and what the business does. They never see the dashboard.
+**Visitor.** Opens the Netlify link and needs hours, address, phone, and what the business does. They never see the dashboard.
 
 Out of v1: owner logins, multi-staff accounts, and online payments.
 
@@ -51,10 +49,10 @@ Out of v1: owner logins, multi-staff accounts, and online payments.
 
 1. **Talking is the form.** Every required field has a spoken question and a tool that stores the answer.
 2. **Confirm before publish.** The site deploys only after an explicit spoken yes, stored as a tool result.
-3. **One page, done.** A single fast page. One template.
-4. **One domain, one zone.** The parent domain comes from the environment. Subdomains are CNAME records in the Cloudflare zone for that domain. The apex record stays as it is.
+3. **One page, done.** A single fast page. Gemini designs it from the profile; a template is the fallback.
+4. **Netlify link only.** v1 ships the default Netlify URL. No custom subdomain and no DNS write.
 5. **The phone call is Higgs Realtime only.** The site is rendered from the saved profile, not from a second voice model.
-6. **Keys stay on the server.** `BOSON_API_KEY`, Twilio, Netlify, and Cloudflare tokens never ship to the browser or the generated site.
+6. **Keys stay on the server.** `BOSON_API_KEY`, Twilio, and Netlify tokens never ship to the browser or the generated site.
 
 ---
 
@@ -85,13 +83,7 @@ Voice service POSTs the profile to the Next.js publish route
 Generator writes static HTML  →  Netlify deploy
         │
         ▼
-Attach {slug}.{PORCHLINE_PARENT_DOMAIN} on that Netlify site
-        │
-        ▼
-Upsert a DNS-only CNAME in the Cloudflare zone
-        │
-        ▼
-Dashboard shows preview URL, hostname, and DNS check
+Dashboard shows the Netlify preview URL
 ```
 
 ### Call script
@@ -107,10 +99,9 @@ The agent keeps questions short and accepts barge-in. It does not ask for anythi
 7. Hours. “Closed Sunday” is a valid answer.
 8. Up to six services or menu items, each with an optional spoken price.
 9. One optional note (parking, walk-ins, languages).
-10. Preferred subdomain label, such as `rose-barber`. Repeat the full hostname.
-11. Read-back from `read_profile`, not from memory.
-12. “Should I publish this?” Only a clear yes calls `publish_profile`.
-13. After publish, tell them the site is going live at `{slug}.{PORCHLINE_PARENT_DOMAIN}`. Speak the preview host if the subdomain is not HTTPS-ready yet.
+10. Read-back from `read_profile`, not from memory.
+11. “Should I publish this?” Only a clear yes calls `publish_profile`.
+12. After publish, tell them the Netlify preview link.
 
 If they are unsure, keep the draft and say they can call back. Do not invent hours, prices, or reviews.
 
@@ -124,16 +115,15 @@ If they are unsure, keep the draft and say they can call back. Do not invent hou
 - Operator dashboard: live transcript, profile fields, call status, session errors.
 - Structured profile (section 7).
 - Confirmation gate before publish.
-- One static page: hero, about, services, hours, location or service area, click-to-call.
+- One static page designed by Gemini from the confirmed profile: hero, about, services, hours, location or service area, click-to-call.
 - Netlify deploy of the static page, reusing one Netlify site per project.
-- Cloudflare DNS write: one CNAME from `{subdomainLabel}.{PORCHLINE_PARENT_DOMAIN}` to that Netlify site. Proxy stays off.
-- Preview URL, hostname, and a DNS check on the dashboard.
+- Netlify deploy only. The live URL is the default Netlify host.
+- Preview URL on the dashboard.
 - A later call from the same number reloads the draft and can change hours or the public phone, then redeploy.
 
 ### Out of scope
 
-- Buying or transferring domains. The Cloudflare zone and the parent domain already exist.
-- Apex records, redirects, and any record other than the one shop subdomain.
+- Custom domains, DNS, and Cloudflare zone management.
 - A second host. Netlify is the only deploy target.
 - Ordering, bookings, payments, blogs, a visual editor, or multi-page sites.
 - Higgs TTS 3 and Higgs Avatar.
@@ -158,11 +148,15 @@ Stored as JSON. Tools write one concern at a time so a dropped call keeps partia
 | `hours` | Yes | Seven days. Each day is open intervals or closed |
 | `services` | Yes | 1–6 items: `name`, optional `priceLabel`, optional `blurb` |
 | `highlight` | No | Parking, walk-ins, languages |
-| `subdomainLabel` | Yes | Lowercase hostname label |
+| `vibe` | No | Feel words for the page builder |
+| `look` | No | Color or visual direction in their words |
+| `heroLine` | No | Optional headline |
+| `audience` | No | Who the page should speak to |
+| `siteSlug` | No | Internal Netlify site name slug only |
 | `confirmed` | Yes | True only after spoken yes |
 | `sourceCallId` | Yes | Twilio call SID |
 
-The parent domain comes from `PORCHLINE_PARENT_DOMAIN` (for example `example.com`). The spoken label becomes `rose-barber.example.com`. The model never invents the parent domain. Cloudflare must already be authoritative for that zone.
+There is no custom domain in v1. Publish returns the Netlify preview URL.
 
 The contract lives in `packages/profile.schema.json`. Python validates with Pydantic. The Next.js app validates with Zod. Both load that same file. A field that is not in the schema is not on the website.
 
@@ -182,7 +176,7 @@ The contract lives in `packages/profile.schema.json`. Python validates with Pyda
 | `save_contact` | Phone, email, address or service area |
 | `save_hours` | Weekly hours |
 | `add_service` | One service. Reject the 7th |
-| `set_subdomain_label` | Slug. Server checks it is one hostname label |
+| `save_site_style` | Optional vibe, look, hero line, audience, highlight |
 | `read_profile` | Current stored profile for the read-back |
 | `publish_profile` | Sets `confirmed` only when required fields exist. Returns the missing field names otherwise |
 
@@ -190,7 +184,7 @@ The contract lives in `packages/profile.schema.json`. Python validates with Pyda
 
 **FR-5.** Barge-in stops playback. The next user turn is the one that gets answered.
 
-**FR-6.** A disconnect keeps the draft. The next call from the same caller ID loads it and offers to continue.
+**FR-6.** Every inbound call starts a new empty project. Prior drafts are not resumed.
 
 **FR-7.** Prices and hours are repeated in words before the tool writes them.
 
@@ -202,57 +196,36 @@ The contract lives in `packages/profile.schema.json`. Python validates with Pyda
 
 ## 9. Site requirements
 
-**FR-10.** The generator reads only the confirmed profile. It does not mine the transcript.
+**FR-10.** After spoken yes, the web app asks Gemini (`GEMINI_API_KEY`, default model `gemini-4-argon`) to design the page from the confirmed profile only. It does not mine the transcript. If Gemini fails or the key is missing, the fixed template in `apps/web/src/generator/render.ts` is used.
 
-**FR-11.** The page shows business name, category, summary, services with price text when present, hours, address or service area, click-to-call, email when present, and a footer line “Built with Porchline.”
+**FR-11.** The page shows business name, category, summary, services with price text when present, hours, address or service area, click-to-call, email when present, optional vibe/look/hero/audience when present, and a footer line “Built with Porchline.”
 
 **FR-12.** Static HTML and CSS. Responsive. No account, no tracker, no JavaScript required to read the page.
 
-**FR-13.** Copy cleanup is capitalization and obvious transcript spelling. The generator does not add services, awards, or years in business.
+**FR-13.** The site builder must not invent hours, prices, services, reviews, or credentials. It may rearrange layout and style using optional vibe and look fields.
 
-**FR-14.** One template. Category changes a single accent color: food, personal care, home services, other. Shipping one accent is acceptable if the rest of the demo is done.
+**FR-14.** The AI builder is the default path. The template remains the fallback and the local fixture preview.
 
-**FR-15.** A profile update redeploys the same Netlify site and updates the same Cloudflare CNAME. The record name does not change unless the subdomain label changes. A label change creates a new name and leaves the old record in place until the operator deletes it.
+**FR-15.** A profile update redesigns and redeploys the same Netlify site. The live link stays the Netlify default URL.
 
 ---
 
-## 10. Hosting and DNS
+## 10. Hosting
 
-Netlify hosts the files. Cloudflare hosts the DNS for the parent domain. Both calls happen from `apps/web` during publish.
+Netlify hosts the files. Publish happens from `apps/web`.
 
 Publish order:
 
-1. Render the static files.
+1. Ask Gemini to design `index.html` and `styles.css` from the profile. Fall back to the template on failure.
 2. Create a Netlify site on first publish, or reuse the site id stored for this project.
-3. Deploy the files. Keep the `*.netlify.app` hostname as the preview.
-4. Add `{subdomainLabel}.{PORCHLINE_PARENT_DOMAIN}` as a custom domain on that Netlify site.
-5. Upsert a Cloudflare CNAME in `CLOUDFLARE_ZONE_ID`:
-   - name: the subdomain label
-   - target: the Netlify site hostname (`<site>.netlify.app`)
-   - proxy: off (DNS only)
-   - TTL: auto
-6. If a CNAME with that name already exists, update its target. Do not create a second record. Do not edit any other record in the zone.
-7. Check DNS, then report HTTPS once the hostname answers.
+3. Deploy the files.
+4. Return the Netlify `*.netlify.app` / SSL preview URL. No custom domain and no DNS write.
 
-The Cloudflare record stays DNS-only so Netlify can issue the certificate. An orange-cloud proxied record is a failed publish, and the dashboard says to turn the proxy off.
+**FR-16.** After deploy the dashboard shows the Netlify hostname and preview URL, for example `https://porchline-rose-barber.netlify.app`.
 
-**FR-16.** After deploy the dashboard shows:
+**FR-17.** `NETLIFY_AUTH_TOKEN` is an environment variable. It is not written into the generated files.
 
-| Column | Example |
-| --- | --- |
-| Hostname | `rose-barber.example.com` |
-| DNS | Cloudflare CNAME, proxy off |
-| Target | `porchline-rose-barber.netlify.app` |
-| Preview | `https://porchline-rose-barber.netlify.app` |
-| Parent domain | value of `PORCHLINE_PARENT_DOMAIN` |
-
-**FR-17.** The app writes that CNAME. The dashboard shows the record it wrote. It does not ask the operator to paste DNS unless the Cloudflare call failed.
-
-**FR-18.** Check DNS reports one of: not found yet, CNAME points somewhere else, CNAME matches, HTTPS ready. The preview URL loading is not treated as the custom domain being ready.
-
-**FR-19.** `NETLIFY_AUTH_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, and `PORCHLINE_PARENT_DOMAIN` are environment variables. They are not written into the generated files.
-
-**FR-20.** The generated file bundle is stored next to the profile (`data/sites/<project-id>/`) so an hours change redeploys without another full interview. The Netlify site id and the Cloudflare record id are stored on the project.
+**FR-18.** The generated file bundle is stored next to the profile (`data/sites/<project-id>/`) so an hours change redeploys without another full interview. The Netlify site id is stored on the project.
 
 ---
 
@@ -260,11 +233,11 @@ The Cloudflare record stays DNS-only so Netlify can issue the certificate. An or
 
 One screen.
 
-- Waiting: the Twilio number, and the project state (`draft`, `confirmed`, `deployed`, `dns_ready`).
+- Waiting: the Twilio number, and the project state (`draft`, `confirmed`, `designing`, `deploying`, `deployed`, `error`).
 - During the call: transcript, profile card, timer.
-- On confirm: publish runs automatically. The screen shows progress and a cancel control until the deploy returns.
-- After deploy: preview link, the Cloudflare record, and Check DNS.
-- Errors from Higgs, Twilio, Netlify, and Cloudflare stay on this screen in plain language.
+- On confirm: publish runs automatically. The screen shows progress until the deploy returns.
+- After deploy: the Netlify preview link.
+- Errors from Higgs, Twilio, and Netlify stay on this screen in plain language.
 
 The owner’s interface is the phone.
 
@@ -282,17 +255,15 @@ Two processes. Python owns the live call. Next.js owns the dashboard, the HTML, 
 | Model | `higgs-realtime` at `wss://api.boson.ai/v1/realtime/` | The only model on the call |
 | Transcript | `higgs-stt-3.1` on session input | Dashboard text. The model still understands audio if this is off |
 | Phone | Twilio Programmable Voice + Media Streams | Inbound call, μ-law 8 kHz, converted to 24 kHz PCM for Higgs |
-| Tunnel, local only | Cloudflare Tunnel (`cloudflared`) | Gives Twilio a public `wss` URL while we develop. This is not the DNS zone. |
+| Tunnel, local only | ngrok (or similar) | Gives Twilio a public `wss` URL while we develop |
 | Language, web | TypeScript on Node 20 | Dashboard, generator, deployers |
-| Web app | Next.js (App Router) + React | One operator screen and the publish/DNS routes |
+| Web app | Next.js (App Router) + React | One operator screen and the publish route |
 | Styling, dashboard | Tailwind CSS | Operator UI only. The customer site is plain CSS |
 | Styling, customer site | One HTML file + one CSS file | What gets deployed |
 | Profile contract | `packages/profile.schema.json` | Shared by Pydantic and Zod |
 | Database | SQLite file `data/porchline.db` | Projects, transcripts, deploy rows. Voice service owns the file |
 | Python DB access | `sqlite3` in the standard library | No ORM for v1 |
-| Deploy | Netlify REST API | The only host. Create the site, upload the bundle, attach the custom hostname |
-| DNS | Cloudflare DNS API | Upsert one DNS-only CNAME on the zone for `PORCHLINE_PARENT_DOMAIN` |
-| DNS check | Node `dns.promises.resolveCname`, then an HTTPS HEAD | Runs in the Next.js route |
+| Deploy | Netlify REST API | The only host. Create the site and upload the bundle |
 | Live UI | SSE from FastAPI | Transcript lines and profile patches |
 | Package manager, JS | npm | `apps/web` |
 | Package manager, Python | `venv` + pip | `services/voice` |
@@ -308,8 +279,7 @@ We do not add LiveKit, a second LLM on the call, Redis, Postgres, Docker, or a m
 | Higgs session, tools, transcripts | `services/voice` |
 | SQLite | `services/voice` |
 | HTML render | `apps/web` |
-| Netlify deploy and custom domain | `apps/web` |
-| Cloudflare CNAME upsert and DNS check | `apps/web` |
+| Netlify deploy | `apps/web` |
 | Operator screen | `apps/web` |
 
 ### HTTP between the two apps
@@ -322,11 +292,10 @@ Voice is the source of truth for the call. Web is the source of truth for the de
 | `GET /projects/{id}/stream` | Web (EventSource) | Voice | SSE: `transcript`, `profile`, `status`, `error` |
 | `POST /internal/publish` | Voice | Web | `publish_profile` succeeded |
 | `POST /internal/deploy-result` | Web | Voice | Deploy finished or failed, so the call can speak the preview host |
-| `POST /api/dns-check` | Dashboard | Web | Operator clicks Check DNS |
 
 `/internal/*` routes require `INTERNAL_SHARED_SECRET`. The browser never calls them.
 
-`POST /internal/publish` body is the profile JSON plus `projectId`. The web app refuses it when `confirmed` is not true. Response is `{ previewUrl, hostname, cnameTarget, cloudflareRecordId, status }`.
+`POST /internal/publish` body is the profile JSON plus `projectId`. The web app refuses it when `confirmed` is not true. Response is `{ previewUrl, hostname, netlifySiteId, status }`.
 
 ### Twilio call path
 
@@ -345,7 +314,7 @@ Set once in `session.update` through `BosonRealtimeLLMService`:
 - audio format: 24 kHz PCM, which is what `pipecat-boson` sends. Twilio’s 8 kHz μ-law is converted at the serializer.
 - turn detection: `semantic_vad`
 - input transcription: `{ "model": "higgs-stt-3.1", "language": "en" }`
-- tools: the seven functions in FR-3
+- tools: the functions in FR-3
 - instructions: the call script in section 5
 
 Auth header on the server WebSocket: `Authorization: Bearer <BOSON_API_KEY>`.
@@ -368,12 +337,11 @@ Web reads:
 
 - `VOICE_BASE_URL` = `http://localhost:8000` in dev
 - `INTERNAL_SHARED_SECRET` — same value as voice
-- `PORCHLINE_PARENT_DOMAIN` — the zone apex, such as `example.com`. Subdomains are `{label}.{PORCHLINE_PARENT_DOMAIN}`
 - `NETLIFY_AUTH_TOKEN`
-- `CLOUDFLARE_API_TOKEN` — permission to edit DNS on this zone only
-- `CLOUDFLARE_ZONE_ID` — the zone id for `PORCHLINE_PARENT_DOMAIN`
+- `GEMINI_API_KEY` — Gemini site builder after spoken yes. Optional; template fallback if empty
+- `SITE_BUILDER_MODEL` — optional, default `gemini-4-argon`
 
-Web startup fails if any of those four are missing. The voice service does not read the Netlify or Cloudflare keys.
+Web publish needs the Netlify token. The voice service does not read Netlify or Gemini keys.
 
 ---
 
@@ -383,19 +351,18 @@ Web startup fails if any of those four are missing. The voice service does not r
 porchline/
   apps/web/                         Next.js operator app
     src/app/page.tsx                dashboard
-    src/app/api/dns-check/route.ts
     src/app/internal/publish/route.ts
-    src/generator/render.ts         profile JSON → HTML + CSS
+    src/generator/aiSite.ts         Gemini designs HTML + CSS from the profile
+    src/generator/render.ts         template fallback
     src/generator/template.css
-    src/deploy/netlify.ts           create site, deploy files, attach hostname
-    src/dns/cloudflare.ts           upsert the DNS-only CNAME
-    src/profile/schema.ts           Zod from the shared JSON schema
+    src/deploy/netlify.ts           create site, deploy files
+    src/lib/profile.ts              Zod from the shared JSON schema
   services/voice/
     pyproject.toml
     porchline_voice/main.py         FastAPI app
-    porchline_voice/twilio.py       TwiML + media stream
+    porchline_voice/twilio_http.py  TwiML + signature check
     porchline_voice/agent.py        Pipecat pipeline + Higgs
-    porchline_voice/tools.py        the seven tools
+    porchline_voice/tools.py        intake tools including save_site_style
     porchline_voice/store.py        SQLite
     porchline_voice/events.py       SSE hub
   packages/profile.schema.json
@@ -437,17 +404,14 @@ Done when:
 - An incomplete fixture (delete `hours`) fails validation and does not render.
 - `publish_profile`’s validation function, called in a unit test, rejects a profile that is missing a required field or has `confirmed: false`.
 
-### Phase 2 — Netlify and Cloudflare, still no phone
+### Phase 2 — Netlify, still no phone
 
-`POST /internal/publish` accepts the fixture, writes `data/sites/<id>/`, deploys to Netlify, attaches `{slug}.{PORCHLINE_PARENT_DOMAIN}`, and upserts the Cloudflare CNAME. The dashboard gets a temporary “Deploy fixture” button so we can test this without a call. That button is removed in phase 5.
+`POST /internal/publish` accepts the fixture, writes `data/sites/<id>/`, and deploys to Netlify. The dashboard gets a temporary “Deploy fixture” button so we can test this without a call. That button is removed in phase 5.
 
 Done when:
 
 - The fixture is live on a `*.netlify.app` URL.
-- Cloudflare shows one DNS-only CNAME for that subdomain, pointed at the Netlify hostname.
-- The apex record in the zone is unchanged.
-- A second deploy of the same `projectId` reuses the Netlify site and updates that same Cloudflare record.
-- Check DNS reports “CNAME matches” for the hostname, then “HTTPS ready” once Netlify’s certificate is up.
+- A second deploy of the same `projectId` reuses the same Netlify site.
 
 ### Phase 3 — Higgs without Twilio
 
@@ -480,7 +444,7 @@ Done when:
 
 - A yes on the phone produces a Netlify URL whose page matches the tool-written profile.
 - A “not yet” leaves `confirmed` false and creates no deploy.
-- Redeploying after an hours change keeps the same Netlify site and the same Cloudflare record name.
+- Redeploying after an hours change keeps the same Netlify site.
 
 ### Phase 6 — Dashboard is the operator view
 
@@ -490,11 +454,9 @@ Done when:
 
 - Refreshing the dashboard mid-call reconnects the stream and shows the current profile.
 - Higgs close codes from FR-9 appear as the strings in that requirement.
-- Check DNS reports the four states in FR-18 against `{slug}.{PORCHLINE_PARENT_DOMAIN}` after the Cloudflare write.
-
 ### Phase 7 — Rehearsal
 
-Run the demo script in section 16 twice. The first run uses `/dev/call` if the tunnel is unnecessary. The second run is a real cell call through Twilio. The first run’s Cloudflare record should already resolve so the subdomain loads on stage.
+Run the demo script in section 16 twice. The first run uses `/dev/call` if the tunnel is unnecessary. The second run is a real cell call through Twilio. The first run’s Netlify preview should already load on stage.
 
 Done when the success criteria in section 17 all pass on that second run.
 
@@ -523,7 +485,7 @@ Phase 4 also needs a tunnel aimed at port 8000, and that HTTPS host written into
 
 Day-to-day rules:
 
-- Change the schema first, then Pydantic, then Zod, then the tool, then the template.
+- Change the schema first, then Pydantic, then Zod, then the tool, then the site builder prompt or template.
 - New dashboard behavior reads an API that already exists. Do not invent a parallel store in the browser.
 - Customer-site CSS lives in `src/generator/template.css`. Tailwind classes do not appear in generated HTML.
 - Secrets are read from the environment at startup. A missing required key fails startup with the key name, not a later stack trace mid-call.
@@ -536,13 +498,10 @@ About four minutes on stage. The phone interview itself can be shortened by usin
 
 1. Open the dashboard. Show the Twilio number and an empty or draft project.
 2. Call from a phone. Higgs greets in the `default` voice.
-3. Give one shop: Rose Street Barber, haircuts and beard trims, Queen Street, Tuesday to Saturday 10 to 6, closed Sunday and Monday, haircut 28 dollars, label `rose-barber`.
+3. Give one shop: Rose Street Barber, haircuts and beard trims, Queen Street, Tuesday to Saturday 10 to 6, closed Sunday and Monday, haircut 28 dollars.
 4. Interrupt once.
 5. Let the agent read the profile back. Say yes.
-6. Open the preview URL at phone width.
-7. Show the Cloudflare record. Open `https://rose-barber.{PORCHLINE_PARENT_DOMAIN}` after Check DNS says HTTPS ready.
-
-The subdomain is rehearsed earlier. If HTTPS is still provisioning on stage, the `*.netlify.app` preview is the proof that the page exists.
+6. Open the Netlify preview URL at phone width.
 
 ---
 
@@ -552,9 +511,7 @@ The subdomain is rehearsed earlier. If HTTPS is still provisioning on stage, the
 2. The profile on the page was written only by tools.
 3. “Yes” publishes. “Not yet” does not.
 4. The preview URL shows the owner’s name, hours, and phone.
-5. Publish writes a DNS-only Cloudflare CNAME for `{label}.{PORCHLINE_PARENT_DOMAIN}` and leaves the apex alone.
-6. Check DNS matches that hostname, or it correctly reports that the record is not ready.
-7. A second call from the same number updates one field and redeploys the same Netlify site without creating a second Cloudflare record.
+5. A second call from the same number updates one field and redeploys the same Netlify site.
 
 ---
 
@@ -566,12 +523,9 @@ The subdomain is rehearsed earlier. If HTTPS is still provisioning on stage, the
 | Audio format mismatch | Keep the Pipecat pipeline at 24 kHz PCM. The dev mic downsamples to 24 kHz. Twilio μ-law is converted by `TwilioFrameSerializer`. |
 | Publish races the read-back | `publish_profile` checks required fields and `confirmed` on the server. Instructions are not the gate. |
 | Misheard price or hours | FR-7. The tool writes only the confirmed value. |
-| DNS or certificate slow on stage | `*.netlify.app` is the fallback. Write the Cloudflare record in phase 2, not live for the first time. |
-| Cloudflare proxy turned on | Create the record with `proxied: false`. Treat a proxied record as a failed publish. |
-| Wrong zone or apex edit | `CLOUDFLARE_ZONE_ID` must be the zone for `PORCHLINE_PARENT_DOMAIN`. The client may update only the shop CNAME. |
-| CNAME target changes | Reuse one Netlify site id per project, stored in SQLite. |
-| Twilio cannot reach localhost | Cloudflare Tunnel in phase 4. That tunnel is separate from the DNS zone and uses a different credential. `/dev/call` covers phases 3 and 6. |
-| Scope grows into a site builder | One template. The fixture button dies in phase 5. |
+| Netlify deploy fails mid-demo | Keep the fixture deploy path warm. Speak the saved profile and retry publish from the dashboard. |
+| Twilio cannot reach localhost | ngrok (or similar) in phase 4. `/dev/call` covers phases 3 and 6. |
+| Scope grows into a multi-page CMS | One static page from Gemini or the template. The fixture button stays for dry runs. |
 
 ---
 
@@ -580,7 +534,7 @@ The subdomain is rehearsed earlier. If HTTPS is still provisioning on stage, the
 - Phone updates as the only CMS (“we’re closed next Monday”).
 - Drop `/dev/call` or hide it behind an env flag.
 - More than one project in the dashboard.
-- Owner-facing preview link before the subdomain is advertised.
+- Optional custom domain support after the hackathon.
 
 ---
 
@@ -596,7 +550,6 @@ The subdomain is rehearsed earlier. If HTTPS is still provisioning on stage, the
 | Customer site | Static HTML and CSS from `fixtures` or a confirmed profile |
 | Store | SQLite owned by the voice service |
 | Shared contract | `packages/profile.schema.json` |
-| Host | Netlify only |
-| Parent domain | `PORCHLINE_PARENT_DOMAIN` in the environment |
-| DNS | Cloudflare zone for that domain. One DNS-only CNAME per shop |
-| Build order | Fixture page → Netlify + Cloudflare → local Higgs → Twilio → publish on yes → rehearsal |
+| Host | Netlify only (default `*.netlify.app` URL) |
+| Custom domain / DNS | Out of v1 |
+| Build order | Fixture page → Netlify → local Higgs → Twilio → publish on yes → rehearsal |

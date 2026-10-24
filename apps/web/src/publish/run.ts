@@ -1,12 +1,10 @@
 import fs from "fs";
 import path from "path";
 
-import { attachHostname, deployFiles, ensureSite, netlifyHost } from "@/deploy/netlify";
-import { checkHostname, type DnsStatus } from "@/dns/check";
-import { upsertCname } from "@/dns/cloudflare";
+import { deployFiles, ensureSite, netlifyHost } from "@/deploy/netlify";
 import { loadRootEnv, missingEnv, repoRoot } from "@/lib/env";
-import { profileSchema, type Profile } from "@/lib/profile";
-import { renderSite } from "@/generator/render";
+import { buildSite } from "@/generator/aiSite";
+import { ensurePublishDefaults, profileSchema, type Profile } from "@/lib/profile";
 
 export type PublishResult = {
   status: "deployed" | "error";
@@ -14,32 +12,42 @@ export type PublishResult = {
   message?: string;
   previewUrl?: string;
   hostname?: string;
-  cnameTarget?: string;
   netlifySiteId?: string;
-  cloudflareRecordId?: string | null;
-  dnsStatus?: DnsStatus;
+  builderSource?: "gemini" | "template";
+  builderNote?: string;
 };
 
 function siteDir(projectId: string): string {
   return path.join(repoRoot(), "data", "sites", projectId);
 }
 
-function writeBundle(projectId: string, html: string, css: string): void {
+function writeBundle(projectId: string, html: string, css: string, js?: string): void {
   const dir = siteDir(projectId);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "index.html"), html, "utf8");
   fs.writeFileSync(path.join(dir, "styles.css"), css, "utf8");
+  if (js?.trim()) fs.writeFileSync(path.join(dir, "script.js"), js, "utf8");
 }
 
 export async function publishProfile(input: {
   projectId: string;
   profile: unknown;
   netlifySiteId?: string | null;
-  cloudflareRecordId?: string | null;
   notifyVoice?: boolean;
 }): Promise<PublishResult> {
   loadRootEnv();
-  const parsed = profileSchema.safeParse(input.profile);
+  const rawProfile =
+    input.profile && typeof input.profile === "object"
+      ? (() => {
+          const copy = { ...(input.profile as Record<string, unknown>) };
+          if (!copy.siteSlug && typeof copy.subdomainLabel === "string") {
+            copy.siteSlug = copy.subdomainLabel;
+          }
+          delete copy.subdomainLabel;
+          return copy;
+        })()
+      : input.profile;
+  const parsed = profileSchema.safeParse(rawProfile);
   if (!parsed.success) {
     return {
       status: "error",
@@ -47,47 +55,31 @@ export async function publishProfile(input: {
       message: parsed.error.issues.map((issue) => issue.path.join(".") || issue.message).join(", "),
     };
   }
-  const profile: Profile = parsed.data;
-  const missing = missingEnv([
-    "PORCHLINE_PARENT_DOMAIN",
-    "NETLIFY_AUTH_TOKEN",
-    "CLOUDFLARE_API_TOKEN",
-    "CLOUDFLARE_ZONE_ID",
-  ]);
+  const profile: Profile = ensurePublishDefaults(parsed.data);
+  const missing = missingEnv(["NETLIFY_AUTH_TOKEN"]);
   if (missing) {
     return { status: "error", projectId: input.projectId, message: missing };
   }
 
-  const parent = process.env.PORCHLINE_PARENT_DOMAIN!.trim().toLowerCase();
-  const hostname = `${profile.subdomainLabel}.${parent}`;
   const token = process.env.NETLIFY_AUTH_TOKEN!.trim();
-  const rendered = renderSite(profile);
-  writeBundle(input.projectId, rendered.html, rendered.css);
 
   try {
-    const siteName = `porchline-${profile.subdomainLabel}`.slice(0, 50);
+    const rendered = await buildSite(profile);
+    writeBundle(input.projectId, rendered.html, rendered.css, rendered.js);
+    const siteName = `porchline-${profile.siteSlug}`.slice(0, 50);
     const site = await ensureSite(token, input.netlifySiteId ?? null, siteName);
     await deployFiles(token, site.id, rendered);
-    await attachHostname(token, site.id, hostname);
-    const target = netlifyHost(site);
-    const record = await upsertCname({
-      token: process.env.CLOUDFLARE_API_TOKEN!.trim(),
-      zoneId: process.env.CLOUDFLARE_ZONE_ID!.trim(),
-      hostname,
-      target,
-      recordId: input.cloudflareRecordId ?? null,
-    });
-    const dnsStatus = await checkHostname(hostname, target);
-    const previewUrl = site.ssl_url || `https://${target}`;
+    const hostname = netlifyHost(site);
+    const previewUrl = site.ssl_url || `https://${hostname}`;
     const result: PublishResult = {
       status: "deployed",
       projectId: input.projectId,
       previewUrl,
       hostname,
-      cnameTarget: target,
       netlifySiteId: site.id,
-      cloudflareRecordId: record.id,
-      dnsStatus,
+      builderSource: rendered.source,
+      builderNote: rendered.note,
+      message: rendered.note,
     };
     if (input.notifyVoice) await notifyVoice(result);
     return result;

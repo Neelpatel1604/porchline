@@ -8,10 +8,11 @@ from porchline_voice.events import EventHub
 from porchline_voice.profile import (
     missing_for_publish,
     normalize_category,
-    normalize_label,
     normalize_phone,
+    prepare_for_publish,
 )
 from porchline_voice.publish_client import request_publish
+from porchline_voice.sms import send_site_sms
 from porchline_voice.store import Store
 
 try:
@@ -42,7 +43,7 @@ class ToolKit:
             self.save_contact,
             self.save_hours,
             self.add_service,
-            self.set_subdomain_label,
+            self.save_site_style,
             self.read_profile,
             self.publish_profile,
         ]
@@ -65,12 +66,12 @@ class ToolKit:
         category: str = "",
         summary: str = "",
     ) -> None:
-        """Save whichever of the name, category, or summary the owner just gave.
+        """Save the exact business name, category, or summary the owner just said. Never invent or clean up unclear speech into a different name.
 
         Args:
-            businessName: Display name of the shop, or empty to leave it unchanged.
+            businessName: Exact display name they said, or empty to leave it unchanged.
             category: What the shop does, in their words. A restaurant becomes food. A barber becomes personal_care. A plumber becomes home_services. Anything else becomes other.
-            summary: One or two sentences a new customer should know, or empty to leave it unchanged.
+            summary: Exact one or two sentences they gave, or empty to leave it unchanged.
         """
         profile = self._profile()
         saved: list[str] = []
@@ -99,13 +100,13 @@ class ToolKit:
         address: str = "",
         serviceArea: str = "",
     ) -> None:
-        """Save the public phone and optional email, address, or service area.
+        """Save the public phone and optional email, address, or service area. Never invent an email or address.
 
         Args:
             phone: Public phone number. Spoken digits such as "three six five" are valid. Empty leaves the stored phone unchanged.
-            email: Public email, or empty to leave it unchanged.
-            address: Public street address, or empty to leave it unchanged.
-            serviceArea: Neighborhood or city served, or empty to leave it unchanged.
+            email: Exact email they spelled or said, or empty to leave it unchanged. Do not invent domains.
+            address: Public street address they gave, or empty to leave it unchanged.
+            serviceArea: Neighborhood or city they named, or empty to leave it unchanged.
         """
         profile = self._profile()
         saved: list[str] = []
@@ -148,7 +149,7 @@ class ToolKit:
         saturday: str = "",
         sunday: str = "",
     ) -> None:
-        """Save the days the owner just gave. Each day is 'closed' or 'HH:MM-HH:MM'.
+        """Save the days the owner just gave. Each day is 'closed' or 'HH:MM-HH:MM' in 24-hour time. If they say every day 11am-11pm, set all seven days to 11:00-23:00.
 
         Args:
             monday: Monday hours, or empty to leave Monday unchanged.
@@ -216,21 +217,47 @@ class ToolKit:
         self._write(profile)
         await params.result_callback({"ok": True, "count": len(services)})
 
-    async def set_subdomain_label(self, params: FunctionCallParams, label: str) -> None:
-        """Save the subdomain label. The parent domain is added by the server.
+    async def save_site_style(
+        self,
+        params: FunctionCallParams,
+        vibe: str = "",
+        look: str = "",
+        heroLine: str = "",
+        audience: str = "",
+        highlight: str = "",
+    ) -> None:
+        """Save optional design notes for the page builder.
 
         Args:
-            label: Hostname label such as rose-barber.
+            vibe: Feel of the shop, such as warm, modern, or classic. Empty leaves it unchanged.
+            look: Color or visual direction in their words. Empty leaves it unchanged.
+            heroLine: Short headline for the top of the page. Empty leaves it unchanged.
+            audience: Who the page should speak to. Empty leaves it unchanged.
+            highlight: Optional note such as parking, walk-ins, or languages. Empty leaves it unchanged.
         """
-        normalized = normalize_label(label)
-        if not normalized:
-            await params.result_callback({"ok": False, "message": "label is empty"})
-            return
         profile = self._profile()
-        profile["subdomainLabel"] = normalized
+        saved: list[str] = []
+        if vibe.strip():
+            profile["vibe"] = vibe.strip()
+            saved.append("vibe")
+        if look.strip():
+            profile["look"] = look.strip()
+            saved.append("look")
+        if heroLine.strip():
+            profile["heroLine"] = heroLine.strip()
+            saved.append("heroLine")
+        if audience.strip():
+            profile["audience"] = audience.strip()
+            saved.append("audience")
+        if highlight.strip():
+            profile["highlight"] = highlight.strip()
+            saved.append("highlight")
+        if not saved:
+            await params.result_callback({"ok": False, "message": "nothing to save"})
+            return
         profile["confirmed"] = False
         self._write(profile)
-        await params.result_callback({"ok": True, "subdomainLabel": normalized})
+        await params.result_callback({"ok": True, "saved": saved})
 
     async def read_profile(self, params: FunctionCallParams) -> None:
         """Return the stored profile so the read-back matches the database."""
@@ -238,14 +265,10 @@ class ToolKit:
         await params.result_callback({"ok": True, "profile": profile, "missing": missing_for_publish(profile)})
 
     async def publish_profile(self, params: FunctionCallParams) -> None:
-        """Publish only after the owner clearly agrees. Refuses incomplete profiles."""
-        profile = self._profile()
-        missing = missing_for_publish(profile)
-        if missing:
-            await params.result_callback({"ok": False, "missing": missing})
-            return
+        """Publish after the owner clearly agrees. Any collected fields are enough."""
+        profile = prepare_for_publish(self._profile())
         profile["confirmed"] = True
-        project = self._write(profile, status="deploying")
+        project = self._write(profile, status="designing")
         self.hub.publish(self.project_id, {"type": "status", "project": project})
         result = await request_publish(project)
         if result.get("status") == "error":
@@ -261,11 +284,22 @@ class ToolKit:
             return
         saved = self.store.save_deploy(self.project_id, result)
         self.hub.publish(self.project_id, {"type": "status", "project": saved})
+        caller = str(saved.get("callerId") or "")
+        sms = send_site_sms(
+            to_number=caller,
+            preview_url=str(result.get("previewUrl") or ""),
+            business_name=str(profile.get("businessName") or ""),
+        )
         await params.result_callback(
             {
                 "ok": True,
                 "previewUrl": result.get("previewUrl"),
                 "hostname": result.get("hostname"),
-                "dnsStatus": result.get("dnsStatus"),
+                "sms": sms,
+                "message": (
+                    "Site published. Text message sent with the link."
+                    if sms.get("ok")
+                    else f"Site published. Text failed: {sms.get('message')}. Speak the preview link."
+                ),
             }
         )

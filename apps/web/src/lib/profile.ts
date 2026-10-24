@@ -7,22 +7,14 @@ const daySchema = z.object({
 });
 
 export const profileSchema = z.object({
-  businessName: z.string().min(1),
-  category: z.enum(["food", "personal_care", "home_services", "other"]),
-  summary: z.string().min(1),
-  phone: z.string().min(3),
+  businessName: z.string().default(""),
+  category: z.enum(["food", "personal_care", "home_services", "other", ""]).default(""),
+  summary: z.string().default(""),
+  phone: z.string().default(""),
   email: z.string().nullable().optional(),
   address: z.string().nullable().optional(),
   serviceArea: z.string().nullable().optional(),
-  hours: z.object({
-    monday: daySchema,
-    tuesday: daySchema,
-    wednesday: daySchema,
-    thursday: daySchema,
-    friday: daySchema,
-    saturday: daySchema,
-    sunday: daySchema,
-  }),
+  hours: z.record(daySchema).default({}),
   services: z
     .array(
       z.object({
@@ -31,10 +23,17 @@ export const profileSchema = z.object({
         blurb: z.string().nullable().optional(),
       }),
     )
-    .min(1)
-    .max(6),
+    .max(6)
+    .default([]),
   highlight: z.string().nullable().optional(),
-  subdomainLabel: z.string().regex(/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/),
+  vibe: z.string().nullable().optional(),
+  look: z.string().nullable().optional(),
+  heroLine: z.string().nullable().optional(),
+  audience: z.string().nullable().optional(),
+  siteSlug: z
+    .string()
+    .regex(/^(|[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)$/)
+    .default(""),
   confirmed: z.literal(true),
   sourceCallId: z.string().min(1),
 });
@@ -50,3 +49,19 @@ export const DAY_NAMES = [
   "saturday",
   "sunday",
 ] as const;
+
+export function ensurePublishDefaults(profile: Profile): Profile {
+  const next = { ...profile };
+  if (!next.businessName.trim()) next.businessName = "Local business";
+  if (!next.category) next.category = "other";
+  if (!next.summary.trim()) next.summary = "A local business page built with Porchline.";
+  if (!next.siteSlug.trim()) {
+    const label = next.businessName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+    next.siteSlug = label || "shop";
+  }
+  return next;
+}

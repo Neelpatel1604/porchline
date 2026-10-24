@@ -28,15 +28,24 @@ export async function ensureSite(token: string, siteId: string | null, siteName:
     if (existing.ok) return (await existing.json()) as NetlifySite;
   }
 
-  const created = await fetch("https://api.netlify.com/api/v1/sites", {
-    method: "POST",
-    headers: authHeaders(token),
-    body: JSON.stringify({ name: siteName }),
-  });
-  if (!created.ok) {
-    throw new Error(`Netlify site create failed: ${await readError(created)}`);
+  const attempts = [
+    siteName.slice(0, 50),
+    `${siteName}`.slice(0, 42) + `-${Date.now().toString(36).slice(-6)}`,
+  ];
+  let lastError = "unknown";
+  for (const name of attempts) {
+    const created = await fetch("https://api.netlify.com/api/v1/sites", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ name }),
+    });
+    if (created.ok) return (await created.json()) as NetlifySite;
+    lastError = await readError(created);
+    if (!lastError.includes("must be unique")) {
+      throw new Error(`Netlify site create failed: ${lastError}`);
+    }
   }
-  return (await created.json()) as NetlifySite;
+  throw new Error(`Netlify site create failed: ${lastError}`);
 }
 
 export function netlifyHost(site: NetlifySite): string {
@@ -49,11 +58,12 @@ export function netlifyHost(site: NetlifySite): string {
 export async function deployFiles(
   token: string,
   siteId: string,
-  files: { html: string; css: string },
+  files: { html: string; css: string; js?: string },
 ): Promise<void> {
   const zip = new JSZip();
   zip.file("index.html", files.html);
   zip.file("styles.css", files.css);
+  if (files.js?.trim()) zip.file("script.js", files.js);
   const body = await zip.generateAsync({ type: "uint8array" });
   const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/deploys`, {
     method: "POST",
@@ -68,13 +78,3 @@ export async function deployFiles(
   }
 }
 
-export async function attachHostname(token: string, siteId: string, hostname: string): Promise<void> {
-  const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
-    method: "PATCH",
-    headers: authHeaders(token),
-    body: JSON.stringify({ custom_domain: hostname }),
-  });
-  if (!response.ok) {
-    throw new Error(`Netlify custom domain failed: ${await readError(response)}`);
-  }
-}

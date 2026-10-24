@@ -11,7 +11,13 @@ import os
 from typing import Any
 
 from fastapi import WebSocket
-from pipecat.frames.frames import InputAudioRawFrame, LLMRunFrame, OutputAudioRawFrame, TranscriptionFrame
+from pipecat.frames.frames import (
+    InputAudioRawFrame,
+    LLMRunFrame,
+    OutputAudioRawFrame,
+    TranscriptionFrame,
+    TTSTextFrame,
+)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -45,14 +51,22 @@ class Pcm24kSerializer(FrameSerializer):
 
 
 class TranscriptTap(FrameProcessor):
-    def __init__(self, on_user_text) -> None:
+    """Capture live spoken text for the operator dashboard."""
+
+    def __init__(self, role: str, on_text, frame_types: tuple[type, ...]) -> None:
         super().__init__()
-        self._on_user_text = on_user_text
+        self._role = role
+        self._on_text = on_text
+        self._frame_types = frame_types
+        self._last = ""
 
     async def process_frame(self, frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
-        if isinstance(frame, TranscriptionFrame) and frame.text.strip():
-            self._on_user_text(frame.text.strip())
+        if isinstance(frame, self._frame_types):
+            text = (getattr(frame, "text", None) or "").strip()
+            if text and text != self._last:
+                self._last = text
+                self._on_text(self._role, text)
         await self.push_frame(frame, direction)
 
 
@@ -75,7 +89,8 @@ def _instructions(caller: str | None) -> str:
     return (
         INSTRUCTIONS
         + f"\n\nThe caller is dialing from {caller}. "
-        + "If they say to use this number, or they speak these digits, save it with save_contact immediately."
+        + "If they say to use this number, or they speak these digits, save it with save_contact immediately. "
+        + "Do not assume any earlier call history. This interview starts empty."
     )
 
 
@@ -107,15 +122,16 @@ async def _run_pipeline(
             "create_response": True,
             "interrupt_response": True,
             "prefix_padding_ms": 300,
-            "silence_duration_ms": 900,
-            "threshold": 0.6,
+            # Longer silence before the model speaks again — cuts rapid repeat loops.
+            "silence_duration_ms": 1400,
+            "threshold": 0.65,
         },
         input_audio_transcription={"model": "higgs-stt-3.1", "language": "en"},
         input_audio_noise_reduction="near_field",
     )
 
-    def remember(text: str) -> None:
-        project = store.append_transcript(project_id, "owner", text)
+    def remember(role: str, text: str) -> None:
+        project = store.append_transcript(project_id, role, text)
         hub.publish(project_id, {"type": "transcript", "project": project})
 
     @llm.event_handler("on_session_terminated")
@@ -146,8 +162,9 @@ async def _run_pipeline(
         [
             transport.input(),
             user_aggregator,
-            TranscriptTap(remember),
+            TranscriptTap("owner", remember, (TranscriptionFrame,)),
             llm,
+            TranscriptTap("agent", remember, (TTSTextFrame,)),
             transport.output(),
             assistant_aggregator,
         ]
@@ -171,15 +188,7 @@ async def _run_pipeline(
 
 
 async def run_dev_call(websocket: WebSocket, store: Store, hub: EventHub, caller: str) -> None:
-    existing = store.find_open_by_caller(caller)
-    if existing is None:
-        project = store.create(caller, f"dev-{caller}", empty_profile(f"dev-{caller}"))
-    else:
-        store.mark_call_started(existing["id"])
-        found = store.get(existing["id"])
-        if found is None:
-            return
-        project = found
+    project = store.create(caller, f"dev-{caller}", empty_profile(f"dev-{caller}"))
     hub.publish(project["id"], {"type": "status", "project": project})
     await websocket.send_text(json.dumps({"type": "ready", "projectId": project["id"]}))
     try:

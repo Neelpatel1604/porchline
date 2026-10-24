@@ -55,6 +55,19 @@ def current_project() -> dict:
     return {"project": store.current()}
 
 
+@app.get("/projects")
+def list_projects() -> dict:
+    return {"projects": store.list_projects()}
+
+
+@app.get("/projects/{project_id}")
+def get_project(project_id: str) -> dict:
+    project = store.get(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="unknown project")
+    return {"project": project}
+
+
 @app.get("/projects/{project_id}/stream")
 async def project_stream(project_id: str) -> StreamingResponse:
     if store.get(project_id) is None:
@@ -95,7 +108,7 @@ def cancel_project(project_id: str) -> dict:
     project = store.get(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="unknown project")
-    if project["status"] != "deploying":
+    if project["status"] not in {"designing", "deploying"}:
         return {"ok": False, "project": project}
     saved = store.set_status(project_id, "error", "Publish cancelled")
     hub.publish(project_id, {"type": "error", "project": saved})
@@ -110,15 +123,8 @@ async def twilio_voice(request: Request) -> Response:
         raise HTTPException(status_code=403, detail="invalid twilio signature")
     caller = params.get("From") or "unknown"
     call_sid = params.get("CallSid") or "call"
-    existing = store.find_open_by_caller(caller)
-    if existing is None:
-        project = store.create(caller, call_sid, empty_profile(call_sid))
-    else:
-        profile = existing["profile"]
-        profile["sourceCallId"] = call_sid
-        project = store.save_profile(existing["id"], profile)
-        store.mark_call_started(project["id"])
-        project = store.get(project["id"])
+    # Every inbound call starts fresh — no resume of prior profile or transcript.
+    project = store.create(caller, call_sid, empty_profile(call_sid))
     if project is None:
         raise HTTPException(status_code=500, detail="project was not stored")
     hub.publish(project["id"], {"type": "status", "project": project})

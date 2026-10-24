@@ -12,8 +12,9 @@ const config: Config = {
         line: "#e3d5c3",
       },
       fontFamily: {
-        serif: ["Palatino Linotype", "Palatino", "Iowan Old Style", "Georgia", "serif"],
-        sans: ["Segoe UI", "Helvetica Neue", "sans-serif"],
+        display: ["var(--font-display)", "Georgia", "serif"],
+        sans: ["var(--font-body)", "Segoe UI", "sans-serif"],
+        serif: ["var(--font-display)", "Georgia", "serif"],
       },
     },
   },

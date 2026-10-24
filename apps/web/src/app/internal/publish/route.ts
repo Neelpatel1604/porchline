@@ -14,7 +14,6 @@ export async function POST(request: NextRequest) {
     projectId: String(body.projectId || ""),
     profile: body.profile,
     netlifySiteId: body.netlifySiteId ?? null,
-    cloudflareRecordId: body.cloudflareRecordId ?? null,
     notifyVoice: true,
   });
   return NextResponse.json(result, { status: result.status === "error" ? 400 : 200 });

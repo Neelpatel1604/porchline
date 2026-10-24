@@ -1,12 +1,12 @@
 # Porchline
 
-One phone call with a local business owner. A live website on their subdomain.
+One phone call with a local business owner. A live website on a Netlify link.
 
-Porchline is a Boson AI hackathon product. [Higgs Realtime](https://docs.boson.ai/models/higgs-realtime/overview) interviews the owner, tools save a structured business profile, and the app generates a site, deploys it to Netlify, and creates the subdomain CNAME in Cloudflare.
+Porchline is a Boson AI hackathon product. [Higgs Realtime](https://docs.boson.ai/models/higgs-realtime/overview) interviews the owner and tools save a structured business profile. Gemini then designs a one-page site from that profile, and the app deploys it to Netlify.
 
 The build spec — stack, repo layout, and development phases — is in [docs/PRD.md](docs/PRD.md).
 
-The voice service is Python (FastAPI, Pipecat, Higgs Realtime). The operator app is Next.js. Twilio carries the call. Netlify hosts the page. The parent domain is `PORCHLINE_PARENT_DOMAIN`, and Cloudflare holds the subdomain CNAME.
+The voice service is Python (FastAPI, Pipecat, Higgs Realtime). The operator app is Next.js. Twilio carries the call. Netlify hosts the page on its default generated URL.
 
 ## Run locally
 

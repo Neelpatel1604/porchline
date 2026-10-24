@@ -36,18 +36,22 @@ class ServiceItem(BaseModel):
 
 
 class BusinessProfile(BaseModel):
-    businessName: str = Field(min_length=1)
-    category: str
-    summary: str = Field(min_length=1)
-    phone: str = Field(min_length=3)
+    businessName: str = ""
+    category: str = ""
+    summary: str = ""
+    phone: str = ""
     email: str | None = None
     address: str | None = None
     serviceArea: str | None = None
-    hours: dict[str, DayHours]
-    services: list[ServiceItem] = Field(min_length=1, max_length=6)
+    hours: dict[str, DayHours] = Field(default_factory=dict)
+    services: list[ServiceItem] = Field(default_factory=list, max_length=6)
     highlight: str | None = None
-    subdomainLabel: str
-    confirmed: bool
+    vibe: str | None = None
+    look: str | None = None
+    heroLine: str | None = None
+    audience: str | None = None
+    siteSlug: str = ""
+    confirmed: bool = False
     sourceCallId: str = Field(min_length=1)
 
 
@@ -63,7 +67,11 @@ def empty_profile(source_call_id: str) -> dict[str, Any]:
         "hours": {},
         "services": [],
         "highlight": None,
-        "subdomainLabel": "",
+        "vibe": None,
+        "look": None,
+        "heroLine": None,
+        "audience": None,
+        "siteSlug": "",
         "confirmed": False,
         "sourceCallId": source_call_id,
     }
@@ -170,39 +178,38 @@ def normalize_label(value: str) -> str:
 
 
 def missing_for_publish(profile: dict[str, Any]) -> list[str]:
-    missing: list[str] = []
-    if not str(profile.get("businessName") or "").strip():
-        missing.append("businessName")
-    if profile.get("category") not in CATEGORIES:
-        missing.append("category")
-    if not str(profile.get("summary") or "").strip():
-        missing.append("summary")
-    if len(str(profile.get("phone") or "").strip()) < 3:
-        missing.append("phone")
-    hours = profile.get("hours")
-    if not isinstance(hours, dict) or any(day not in hours for day in DAYS):
-        missing.append("hours")
-    services = profile.get("services")
-    if not isinstance(services, list) or not services or len(services) > 6:
-        missing.append("services")
-    elif any(not str(item.get("name") or "").strip() for item in services if isinstance(item, dict)):
-        missing.append("services")
-    label = str(profile.get("subdomainLabel") or "")
+    """Nothing is required to publish. The agent may collect whatever the owner offers."""
+    _ = profile
+    return []
+
+
+def prepare_for_publish(profile: dict[str, Any]) -> dict[str, Any]:
+    prepared = dict(profile)
+    if not str(prepared.get("businessName") or "").strip():
+        prepared["businessName"] = "Local business"
+    if prepared.get("category") not in CATEGORIES:
+        prepared["category"] = "other"
+    if not str(prepared.get("summary") or "").strip():
+        prepared["summary"] = "A local business page built with Porchline."
+    # Accept old drafts that still carry subdomainLabel.
+    if not str(prepared.get("siteSlug") or "").strip() and prepared.get("subdomainLabel"):
+        prepared["siteSlug"] = prepared.get("subdomainLabel")
+    prepared.pop("subdomainLabel", None)
+    label = str(prepared.get("siteSlug") or "").strip()
     if not LABEL_RE.match(label):
-        missing.append("subdomainLabel")
-    return missing
+        prepared["siteSlug"] = normalize_label(str(prepared.get("businessName") or "shop")) or "shop"
+    if not isinstance(prepared.get("hours"), dict):
+        prepared["hours"] = {}
+    if not isinstance(prepared.get("services"), list):
+        prepared["services"] = []
+    return prepared
 
 
 def validate_confirmed(profile: dict[str, Any]) -> BusinessProfile:
-    missing = missing_for_publish(profile)
-    if missing:
-        raise ValueError("missing " + ", ".join(missing))
     if profile.get("confirmed") is not True:
         raise ValueError("profile is not confirmed")
-    model = BusinessProfile.model_validate(profile)
-    if not LABEL_RE.match(model.subdomainLabel):
-        raise ValueError("invalid subdomainLabel")
-    return model
+    prepared = prepare_for_publish(profile)
+    return BusinessProfile.model_validate(prepared)
 
 
 def load_schema() -> dict[str, Any]:

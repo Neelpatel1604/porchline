@@ -17,10 +17,9 @@ async def request_publish(project: dict[str, Any]) -> dict[str, Any]:
         "projectId": project["id"],
         "profile": project["profile"],
         "netlifySiteId": project.get("netlifySiteId"),
-        "cloudflareRecordId": project.get("cloudflareRecordId"),
     }
     try:
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=180) as client:
             response = await client.post(
                 f"{base}/internal/publish",
                 json=payload,
