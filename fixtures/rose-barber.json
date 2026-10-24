@@ -1,0 +1,34 @@
+{
+  "businessName": "Rose Street Barber",
+  "category": "personal_care",
+  "summary": "Haircuts and beard trims on Queen Street. Walk-ins are welcome.",
+  "phone": "+14165550198",
+  "email": "hello@rosestreet.example",
+  "address": "Queen Street",
+  "serviceArea": null,
+  "hours": {
+    "monday": { "closed": true, "open": null, "close": null },
+    "tuesday": { "closed": false, "open": "10:00", "close": "18:00" },
+    "wednesday": { "closed": false, "open": "10:00", "close": "18:00" },
+    "thursday": { "closed": false, "open": "10:00", "close": "18:00" },
+    "friday": { "closed": false, "open": "10:00", "close": "18:00" },
+    "saturday": { "closed": false, "open": "10:00", "close": "18:00" },
+    "sunday": { "closed": true, "open": null, "close": null }
+  },
+  "services": [
+    {
+      "name": "Haircut",
+      "priceLabel": "$28",
+      "blurb": null
+    },
+    {
+      "name": "Beard trim",
+      "priceLabel": "$18",
+      "blurb": null
+    }
+  ],
+  "highlight": "Walk-ins welcome",
+  "subdomainLabel": "rose-barber",
+  "confirmed": true,
+  "sourceCallId": "fixture-rose-barber"
+}

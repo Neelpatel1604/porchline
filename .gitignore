@@ -3,7 +3,11 @@
 !.env.example
 node_modules/
 dist/
+.next/
 .venv/
 __pycache__/
+*.egg-info/
 .DS_Store
 *.log
+data/
+.tools/

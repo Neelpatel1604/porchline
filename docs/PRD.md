@@ -1,10 +1,12 @@
 # Porchline — Product Requirements
 
-**Status:** Hackathon PRD, v1  
+**Status:** Hackathon PRD, v3  
 **Event:** Boson AI hackathon  
-**Angle:** Pricing. Show that a real local-business website can be produced from one live Boson phone call at a voice cost low enough to sell as a flat setup fee.  
 **Repo:** `porchline`  
-**Docs used:** [Boson overview](https://docs.boson.ai/overview), [Higgs Realtime](https://docs.boson.ai/models/higgs-realtime/overview), [connections and sessions](https://docs.boson.ai/models/higgs-realtime/guides/connections-and-sessions), [audio and voices](https://docs.boson.ai/models/higgs-realtime/guides/audio-and-voices), [tool use](https://docs.boson.ai/models/higgs-realtime/guides/tool-calling), [Pipecat integration](https://docs.boson.ai/models/higgs-realtime/integrations/pipecat), [pricing](https://docs.boson.ai/pricing)
+**Voice:** Higgs Realtime through Pipecat  
+**Apps:** Python voice service + Next.js operator app
+
+This document is the build spec. It names the stack, the repo layout, and the order we develop in.
 
 ---
 
@@ -12,422 +14,589 @@
 
 Porchline turns a phone conversation into a hosted website for a local business.
 
-A business owner calls a Porchline number, or an operator starts the call for them. **Higgs Realtime** (`higgs-realtime`) runs the conversation: it asks for the facts a simple site needs, confirms them out loud, and writes them through tools. When the owner says the profile is right, Porchline generates a one-page site, deploys it to **Netlify or Vercel**, and shows the exact **CNAME** record to add so a subdomain points at that deploy.
+A business owner calls a Porchline number. **Higgs Realtime** interviews them, and tools save a structured profile. When the owner confirms, the operator app renders a one-page static site, deploys it to **Netlify**, and creates the subdomain **CNAME** in **Cloudflare**.
 
-The operator already controls DNS. Hackathon v1 does not buy domains and does not log into a registrar. It produces the host, record type, and target, then checks that the subdomain resolves.
+The parent domain is `PORCHLINE_PARENT_DOMAIN` in the environment. That zone already lives in Cloudflare. v1 does not buy or transfer domains, and it does not change the zone apex.
 
-**One-line pitch:** A local shop talks to Boson for ten minutes and gets a website on their subdomain, for pennies of voice API.
+**One-line pitch:** A local shop talks for about ten minutes and gets a website on their subdomain.
 
 ---
 
 ## 2. Problem
 
-Most local businesses — barbers, restaurants, repair shops, tutors, clinics, food trucks — still do not have a usable site. The blocker is not design taste. It is the intake:
+Most local businesses — barbers, restaurants, repair shops, tutors, clinics, food trucks — still do not have a usable site. The blocker is intake:
 
 - Owners will not fill a long form.
 - They will answer a phone call while they are at the shop.
-- Agencies charge hundreds of dollars and take days to collect the same facts: name, what they sell, hours, address, phone, a short story, and a few services.
-- After the site exists, attaching a subdomain is a separate technical step that owners abandon.
+- The facts a simple page needs are the same every time: name, what they sell, hours, address, phone, a short story, and a few services.
+- After the site exists, attaching a subdomain is a separate step that gets dropped.
 
 Porchline collapses intake, generation, hosting, and the DNS instruction into one flow the owner can finish by talking.
 
 ---
 
-## 3. Why Boson, and why pricing
+## 3. Users
 
-Boson exposes three APIs. Porchline uses them like this:
+**Owner.** Takes the phone call. Knows the hours, services, and neighborhood. Says yes or no when the agent reads the profile back.
 
-| API | Role in Porchline | Hackathon |
-| --- | --- | --- |
-| **Higgs Realtime** | The phone agent. Listens and speaks in one session, barge-in, tool calls, optional live transcript via `higgs-stt-3.1`. | Required. This is the product. |
-| **Higgs TTS 3** | Optional later: a spoken “your site is live” voicemail, or a preview clip on the generated site. | Out of the demo path. |
-| **Higgs Avatar** | Optional later: a talking-head explainer. Not needed to ship a website. | Out of scope. |
+**Operator.** Runs the dashboard during the hackathon. Watches the profile fill in. Publish deploys to Netlify and writes the Cloudflare record. The operator steps in only if that write fails.
 
-Higgs Realtime details that the build depends on:
+**Visitor.** Opens the subdomain and needs hours, address, phone, and what the business does. They never see the dashboard.
 
-- Endpoint: `wss://api.boson.ai/v1/realtime?model=higgs-realtime`
-- Auth stays on the server: `Authorization: Bearer <BOSON_API_KEY>`. Browser clients, if any, get a short-lived key from `POST /v1/realtime/client_secrets`.
-- Phone audio: `audio/pcmu` (G.711 μ-law) at **8000 Hz** is a supported input and output format. That matches common telephony media streams, so the bridge does not resample.
-- Turn-taking: `server_vad` or `semantic_vad`, with barge-in. The owner can interrupt.
-- Tools: the app declares JSON-schema functions. The model calls them. The server runs them and returns `function_call_output`, then `response.create`.
-- Transcription: set `audio.input.transcription.model` to `higgs-stt-3.1` so the dashboard can show what the owner said.
-- Pipecat: `pipecat-boson` exposes Higgs as a speech-to-speech service. Do not wrap it in a separate STT plus TTS pair. LiveKit’s first-party Higgs plugin is not ready; do not block on it.
-- Trial: new accounts get **$10** free credit after it is claimed. Calls fail with insufficient quota until that credit exists.
-
-### Boson cost of one intake
-
-Rates from [docs.boson.ai/pricing](https://docs.boson.ai/pricing). Audio figures are Boson’s per-minute estimates. Real bills are token-based. Transcription is extra when enabled.
-
-Assume a 10-minute call where the owner speaks about 6 minutes and the agent speaks about 4 minutes:
-
-| Line | Rate | Quantity | Cost |
-| --- | --- | --- | --- |
-| Audio in | $0.0023 / min | 6 min | $0.014 |
-| Audio out | $0.014 / min | 4 min | $0.056 |
-| Transcription in | $0.0025 / min | 6 min | $0.015 |
-| Tokens (rough) | input $0.75 / 1M, output $4.50 / 1M | short tool-heavy call | ~$0.05–$0.15 |
-| **Boson total** | | | **about $0.15–$0.25** |
-
-A 20-minute messy call still lands around **$0.40–$0.60**. Hosting a static one-page site on Netlify or Vercel hobby/free tiers is $0 at hackathon volume. Domain registration is the owner’s existing domain; Porchline only needs a CNAME.
-
-### Product price this justifies
-
-| Offer | Price | Gross after one Boson call | Who it is for |
-| --- | --- | --- | --- |
-| Hackathon demo | $0 | Trial credit covers many calls ($10 / ~$0.25 ≈ 40 intakes) | Judges and one live shop |
-| Setup | **$49 once** | About $48.75 before telephony minutes | A shop that wants a page this week |
-| Care | **$12 / month** | Updates by calling back (“change Saturday hours”) | Shops that will edit by phone |
-
-Telephony (the phone number and per-minute carrier) is the cost that can exceed Boson. The PRD treats carrier minutes as a separate line, budgeted at roughly $0.01–$0.02 per minute inbound, still small next to $49.
-
-**Hackathon claim:** the expensive part of a small-business website was the interview. Boson’s price makes that interview cheap enough to give the site away in the demo and still have a real business underneath.
+Out of v1: owner logins, multi-staff accounts, and online payments.
 
 ---
 
-## 4. Users
+## 4. Product principles
 
-**Owner.** A local operator. They can take a phone call. They may not want to type. They know their hours, services, and neighborhood. They can say yes or no when the agent reads the profile back.
-
-**Operator (hackathon user).** You. You start or receive the call, watch the profile fill in, approve generation, deploy, and paste the CNAME into DNS for the subdomain.
-
-**Visitor.** A customer who opens the subdomain and needs hours, address, phone, and what the business does. They do not use Porchline itself.
-
-Out of v1: a self-serve owner dashboard, multi-staff logins, and online payments.
-
----
-
-## 5. Product principles
-
-1. **Talking is the form.** Every required field has a spoken question and a tool that stores the answer. There is no parallel form the owner must finish.
-2. **Confirm before publish.** The agent reads a short summary. The site deploys only after an explicit yes, stored as a tool result.
-3. **One page, done.** A single fast page beats a half-built multi-page site.
-4. **DNS stays manual.** The product prints the CNAME. A person edits the record. The product then checks it.
-5. **Boson stays on the voice path.** Website copy can be drafted by a text model from the saved profile. The live call is Higgs Realtime only, so the demo is obviously a Boson product.
-6. **Keys never reach the phone or the browser.** `BOSON_API_KEY`, Netlify, and Vercel tokens live on the server.
+1. **Talking is the form.** Every required field has a spoken question and a tool that stores the answer.
+2. **Confirm before publish.** The site deploys only after an explicit spoken yes, stored as a tool result.
+3. **One page, done.** A single fast page. One template.
+4. **One domain, one zone.** The parent domain comes from the environment. Subdomains are CNAME records in the Cloudflare zone for that domain. The apex record stays as it is.
+5. **The phone call is Higgs Realtime only.** The site is rendered from the saved profile, not from a second voice model.
+6. **Keys stay on the server.** `BOSON_API_KEY`, Twilio, Netlify, and Cloudflare tokens never ship to the browser or the generated site.
 
 ---
 
-## 6. End-to-end flow
+## 5. End-to-end flow
 
 ```text
-Owner calls Porchline number
+Owner calls the Twilio number
         │
         ▼
-Telephony media stream (μ-law 8 kHz)
+Twilio Media Stream (μ-law 8 kHz)  →  FastAPI + Pipecat
         │
         ▼
-Pipecat bridge  ──WebSocket──►  Higgs Realtime
-        │                         instructions + tools
-        │                         higgs-stt-3.1 transcripts
-        ▼
-Business profile (saved field by field)
+Higgs Realtime session (tools + higgs-stt-3.1 transcripts)
         │
         ▼
-Owner hears the summary and says yes
+SQLite profile, updated field by field
         │
         ▼
-Site generator fills a one-page template
+Dashboard (SSE) shows transcript + profile
         │
         ▼
-Deploy to Netlify or Vercel
+Owner says yes  →  publish_profile
         │
         ▼
-Show CNAME:  shop.example.com  →  <deploy host>
+Voice service POSTs the profile to the Next.js publish route
         │
         ▼
-Operator edits DNS
+Generator writes static HTML  →  Netlify deploy
         │
         ▼
-Porchline polls until the subdomain answers, then marks the site live
+Attach {slug}.{PORCHLINE_PARENT_DOMAIN} on that Netlify site
+        │
+        ▼
+Upsert a DNS-only CNAME in the Cloudflare zone
+        │
+        ▼
+Dashboard shows preview URL, hostname, and DNS check
 ```
 
-### Call script (required beats)
+### Call script
 
-The agent keeps questions short. It accepts barge-in. It does not ask for anything the page cannot show.
+The agent keeps questions short and accepts barge-in. It does not ask for anything the page cannot show.
 
-1. Greeting. Name Porchline. Say the call will build their website and take about ten minutes.
+1. Greeting. Name Porchline. Say this call builds their website and takes about ten minutes.
 2. Business name, and how they say it.
 3. Category in plain words (barber, lunch counter, plumber).
-4. One or two sentences: what a new customer should know.
-5. City and neighborhood, then street address if they want it public. They may say “no address, phone only.”
+4. One or two sentences a new customer should know.
+5. City and neighborhood, then street address if they want it public. “No address, phone only” is valid.
 6. Public phone and, if they want it, email.
-7. Hours. Day by day is fine. “Closed Sunday” is a valid answer.
-8. Up to six services or menu items, each with an optional price said out loud.
-9. One thing they are proud of, or a note for the page (parking, walk-ins, languages).
-10. Preferred subdomain label, such as `rose-barber`. The agent repeats the full hostname it will recommend.
-11. Read-back. The agent summarizes name, what they do, where, hours, and how to contact them.
-12. Ask: “Should I publish this?” Only a clear yes triggers `publish_profile`.
-13. After tools return, tell them the temporary host and that the subdomain goes live once the CNAME is saved. Do not claim the custom domain works before DNS verifies.
+7. Hours. “Closed Sunday” is a valid answer.
+8. Up to six services or menu items, each with an optional spoken price.
+9. One optional note (parking, walk-ins, languages).
+10. Preferred subdomain label, such as `rose-barber`. Repeat the full hostname.
+11. Read-back from `read_profile`, not from memory.
+12. “Should I publish this?” Only a clear yes calls `publish_profile`.
+13. After publish, tell them the site is going live at `{slug}.{PORCHLINE_PARENT_DOMAIN}`. Speak the preview host if the subdomain is not HTTPS-ready yet.
 
-If the owner is unsure, the agent saves a draft and says they can call back. It does not invent hours, prices, or reviews.
+If they are unsure, keep the draft and say they can call back. Do not invent hours, prices, or reviews.
 
 ---
 
-## 7. Scope
+## 6. Scope
 
-### In scope for the hackathon
+### In the hackathon
 
-- One inbound phone number bridged to Higgs Realtime.
-- A dashboard the operator watches during the call: live transcript, profile fields as tools fill them, call status, Boson session errors.
-- Structured profile with the fields in section 8.
+- One inbound Twilio number bridged to Higgs Realtime.
+- Operator dashboard: live transcript, profile fields, call status, session errors.
+- Structured profile (section 7).
 - Confirmation gate before publish.
-- One-page site from a fixed template: hero, about, services, hours, location or service area, click-to-call.
-- Deploy to one host. Support both Netlify and Vercel behind one interface, and pick one as the demo default.
-- After deploy: show the preview URL and the CNAME row (host, type, target).
-- A “check DNS” action that reports whether the subdomain points at the deploy.
-- A second short call, or the tail of the same call, that can update hours or the phone number and redeploy.
-- Cost panel on the dashboard: estimated Boson minutes and estimated dollars for the call, using the published rates, labeled as estimates.
+- One static page: hero, about, services, hours, location or service area, click-to-call.
+- Netlify deploy of the static page, reusing one Netlify site per project.
+- Cloudflare DNS write: one CNAME from `{subdomainLabel}.{PORCHLINE_PARENT_DOMAIN}` to that Netlify site. Proxy stays off.
+- Preview URL, hostname, and a DNS check on the dashboard.
+- A later call from the same number reloads the draft and can change hours or the public phone, then redeploy.
 
 ### Out of scope
 
-- Buying or transferring domains.
-- Automated edits inside a registrar. The operator pastes the CNAME.
-- Online ordering, booking payments, or accounts for the shop’s customers.
-- Multi-page sites, blogs, or a visual editor.
-- Higgs Avatar on the marketing site.
-- Cloning the owner’s voice. Use the `default` Realtime voice unless a preset is chosen before the demo.
-- A public self-serve signup. The hackathon operator places or receives the call.
+- Buying or transferring domains. The Cloudflare zone and the parent domain already exist.
+- Apex records, redirects, and any record other than the one shop subdomain.
+- A second host. Netlify is the only deploy target.
+- Ordering, bookings, payments, blogs, a visual editor, or multi-page sites.
+- Higgs TTS 3 and Higgs Avatar.
+- Voice cloning. The session voice is `default`.
+- Public self-serve signup.
 
 ---
 
-## 8. Business profile
+## 7. Business profile
 
-Stored as JSON. Tools write one concern at a time so a dropped call still keeps partial data.
+Stored as JSON. Tools write one concern at a time so a dropped call keeps partial data.
 
 | Field | Required to publish | Notes |
 | --- | --- | --- |
 | `businessName` | Yes | Spoken name and display name |
-| `category` | Yes | Short label |
-| `summary` | Yes | One or two sentences, owner’s words cleaned lightly |
-| `phone` | Yes | Public number, not always the number they called from |
+| `category` | Yes | Short label. One of `food`, `personal_care`, `home_services`, `other` when the agent can tell; otherwise `other` |
+| `summary` | Yes | One or two sentences |
+| `phone` | Yes | Public number. It can differ from caller ID |
 | `email` | No | |
-| `address` | No | Nullable when they refuse a public address |
+| `address` | No | Null when they refuse a public address |
 | `serviceArea` | No | Used when there is no address |
-| `hours` | Yes | Seven days; each day open intervals or closed |
-| `services` | Yes | 1–6 items; `name`, optional `priceLabel`, optional `blurb` |
+| `hours` | Yes | Seven days. Each day is open intervals or closed |
+| `services` | Yes | 1–6 items: `name`, optional `priceLabel`, optional `blurb` |
 | `highlight` | No | Parking, walk-ins, languages |
-| `subdomainLabel` | Yes | Lowercase slug. Operator confirms the parent domain separately |
+| `subdomainLabel` | Yes | Lowercase hostname label |
 | `confirmed` | Yes | True only after spoken yes |
-| `sourceCallId` | Yes | Ties the profile to the telephony call and Boson session |
+| `sourceCallId` | Yes | Twilio call SID |
 
-The parent domain (for example `example.com`) is operator configuration, not something the model invents. The spoken label becomes `rose-barber.example.com`.
+The parent domain comes from `PORCHLINE_PARENT_DOMAIN` (for example `example.com`). The spoken label becomes `rose-barber.example.com`. The model never invents the parent domain. Cloudflare must already be authoritative for that zone.
+
+The contract lives in `packages/profile.schema.json`. Python validates with Pydantic. The Next.js app validates with Zod. Both load that same file. A field that is not in the schema is not on the website.
 
 ---
 
-## 9. Voice agent requirements
+## 8. Voice agent requirements
 
-**FR-1.** Opening a call opens one Higgs Realtime session with `model: higgs-realtime`, server-side bearer auth, `audio/pcmu` at 8000 Hz in both directions, `server_vad` or `semantic_vad`, voice `default`, and input transcription `higgs-stt-3.1` with a language hint.
+**FR-1.** A call opens one Higgs session: `model: higgs-realtime`, server-side bearer auth, `semantic_vad`, voice `default`, and input transcription `higgs-stt-3.1` with `language: en`. `pipecat-boson` uses 24 kHz PCM. Twilio still delivers 8 kHz μ-law, and `TwilioFrameSerializer` converts it.
 
-**FR-2.** System instructions tell the agent it is Porchline, it only collects website facts, it must not invent business facts, it must use tools to save answers, and it must not publish without a spoken confirmation.
+**FR-2.** Instructions say the agent is Porchline, it only collects website facts, it must not invent business facts, it must save through tools, and it must not publish without a spoken confirmation.
 
-**FR-3.** Tools available to the model:
+**FR-3.** Tools:
 
 | Tool | Purpose |
 | --- | --- |
 | `save_business_basics` | Name, category, summary |
 | `save_contact` | Phone, email, address or service area |
 | `save_hours` | Weekly hours |
-| `add_service` | One service or menu item |
-| `set_subdomain_label` | Slug only. Server checks it is a valid hostname label |
-| `read_profile` | Returns the current profile so the read-back matches stored data, not memory |
-| `publish_profile` | Sets `confirmed` if required fields exist. Refuses when they do not, and tells the model which fields are missing |
+| `add_service` | One service. Reject the 7th |
+| `set_subdomain_label` | Slug. Server checks it is one hostname label |
+| `read_profile` | Current stored profile for the read-back |
+| `publish_profile` | Sets `confirmed` only when required fields exist. Returns the missing field names otherwise |
 
-**FR-4.** Tool calls follow Boson’s contract: on `response.done` with a `function_call` item, the server executes, sends `conversation.item.create` with `function_call_output` and the same `call_id`, then `response.create`.
+**FR-4.** Tool calls follow the Higgs contract. On `response.done` with a `function_call`, the server runs it, sends `function_call_output` with the same `call_id`, then `response.create`. Pipecat’s function-call path is the implementation of that contract.
 
-**FR-5.** The owner can interrupt. Playback stops. The next user turn is what gets answered.
+**FR-5.** Barge-in stops playback. The next user turn is the one that gets answered.
 
-**FR-6.** A disconnect keeps the draft. Calling back with the same owner phone loads the draft and the agent offers to continue.
+**FR-6.** A disconnect keeps the draft. The next call from the same caller ID loads it and offers to continue.
 
-**FR-7.** The agent speaks prices and hours back in words before saving, when the value is easy to mishear (“Did you say eighteen dollars?”).
+**FR-7.** Prices and hours are repeated in words before the tool writes them.
 
-**FR-8.** Profanity, medical claims, or “make up reviews” are refused. The site never includes testimonials the owner did not supply, and v1 does not include a review section at all.
+**FR-8.** The agent refuses invented reviews, medical claims, and requests to fake credentials. v1 has no review section.
 
-**FR-9.** Session errors surface in the dashboard. Close code `4429` or an insufficient-quota error shows “Boson credit exhausted” and does not pretend the call succeeded. Close code `3000` shows an auth problem. `1013` shows concurrency and a retry.
-
----
-
-## 10. Site requirements
-
-**FR-10.** The generator takes only the confirmed profile. It does not read the raw transcript for facts that tools did not save.
-
-**FR-11.** The page includes:
-
-- Business name and category
-- Summary
-- Services, with price text when present
-- Hours
-- Address or service area
-- Click-to-call using the public phone
-- Email link when present
-- A one-line footer: built with Porchline
-
-**FR-12.** The page is static, responsive, and readable on a phone. No account, no cookie banner beyond what the host injects, no third-party tracker in v1.
-
-**FR-13.** Copy edits are limited to light cleanup (capitalization, spelling of words the transcript already captured). The generator must not add services, awards, or years in business.
-
-**FR-14.** Visual system is one template with a small set of category accents (food, personal care, home services, other). Hackathon v1 can ship a single accent if time is short. The requirement is a finished page, not a theme picker.
-
-**FR-15.** Regenerating after a profile update replaces the deploy. The subdomain CNAME target stays stable if the host allows it. If a new deploy would change the CNAME target, the dashboard says so before publishing.
+**FR-9.** Session errors show on the dashboard. `4429` or insufficient quota shows “Boson credit exhausted.” `3000` shows an auth problem. `1013` shows concurrency and a retry.
 
 ---
 
-## 11. Hosting and the CNAME
+## 9. Site requirements
 
-The operator chooses the host per project: **Netlify** or **Vercel**. Both must be able to:
+**FR-10.** The generator reads only the confirmed profile. It does not mine the transcript.
 
-1. Create a site from the generated files.
-2. Return a preview hostname (`*.netlify.app` or `*.vercel.app`).
-3. Accept a custom hostname for the subdomain.
-4. Tell Porchline the CNAME target the DNS record must use.
+**FR-11.** The page shows business name, category, summary, services with price text when present, hours, address or service area, click-to-call, email when present, and a footer line “Built with Porchline.”
 
-**FR-16.** After a successful deploy the dashboard shows:
+**FR-12.** Static HTML and CSS. Responsive. No account, no tracker, no JavaScript required to read the page.
+
+**FR-13.** Copy cleanup is capitalization and obvious transcript spelling. The generator does not add services, awards, or years in business.
+
+**FR-14.** One template. Category changes a single accent color: food, personal care, home services, other. Shipping one accent is acceptable if the rest of the demo is done.
+
+**FR-15.** A profile update redeploys the same Netlify site and updates the same Cloudflare CNAME. The record name does not change unless the subdomain label changes. A label change creates a new name and leaves the old record in place until the operator deletes it.
+
+---
+
+## 10. Hosting and DNS
+
+Netlify hosts the files. Cloudflare hosts the DNS for the parent domain. Both calls happen from `apps/web` during publish.
+
+Publish order:
+
+1. Render the static files.
+2. Create a Netlify site on first publish, or reuse the site id stored for this project.
+3. Deploy the files. Keep the `*.netlify.app` hostname as the preview.
+4. Add `{subdomainLabel}.{PORCHLINE_PARENT_DOMAIN}` as a custom domain on that Netlify site.
+5. Upsert a Cloudflare CNAME in `CLOUDFLARE_ZONE_ID`:
+   - name: the subdomain label
+   - target: the Netlify site hostname (`<site>.netlify.app`)
+   - proxy: off (DNS only)
+   - TTL: auto
+6. If a CNAME with that name already exists, update its target. Do not create a second record. Do not edit any other record in the zone.
+7. Check DNS, then report HTTPS once the hostname answers.
+
+The Cloudflare record stays DNS-only so Netlify can issue the certificate. An orange-cloud proxied record is a failed publish, and the dashboard says to turn the proxy off.
+
+**FR-16.** After deploy the dashboard shows:
 
 | Column | Example |
 | --- | --- |
 | Hostname | `rose-barber.example.com` |
-| Type | `CNAME` |
-| Value | the host-specific target |
+| DNS | Cloudflare CNAME, proxy off |
+| Target | `porchline-rose-barber.netlify.app` |
 | Preview | `https://porchline-rose-barber.netlify.app` |
+| Parent domain | value of `PORCHLINE_PARENT_DOMAIN` |
 
-**FR-17.** Instructions on that screen are literal: open the DNS host, add this record on the subdomain, do not replace the root apex unless they mean to, wait for the check.
+**FR-17.** The app writes that CNAME. The dashboard shows the record it wrote. It does not ask the operator to paste DNS unless the Cloudflare call failed.
 
-**FR-18.** “Check DNS” resolves the subdomain and reports one of: not found yet, CNAME points somewhere else, CNAME matches, HTTPS ready. It does not claim success on the preview URL alone.
+**FR-18.** Check DNS reports one of: not found yet, CNAME points somewhere else, CNAME matches, HTTPS ready. The preview URL loading is not treated as the custom domain being ready.
 
-**FR-19.** Secrets for Netlify and Vercel are environment variables. They are never written into the generated site.
+**FR-19.** `NETLIFY_AUTH_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, and `PORCHLINE_PARENT_DOMAIN` are environment variables. They are not written into the generated files.
 
-**FR-20.** The generated site repo or file bundle is kept with the profile so a later hours change can redeploy without another full interview.
-
-Apex domains (`example.com` without a subdomain) are out of scope. Those often need A/ALIAS records, and the operator said the edit is a CNAME on a subdomain.
-
----
-
-## 12. Operator dashboard
-
-One screen is enough.
-
-- Start state: “waiting for a call,” the Porchline number, and remaining story: draft, confirmed, deployed, DNS checked.
-- During the call: transcript lines, profile card updating as tools succeed, and a timer.
-- After confirm: Generate, then Deploy. Generate can be automatic on `publish_profile` for the demo if a manual button is safer for the first run. Default for the demo: automatic generate and deploy on confirm, with a visible cancel while generation is in progress.
-- After deploy: preview link, CNAME table, Check DNS button.
-- Cost strip: duration, estimated Boson dollars, note that carrier minutes are separate.
-
-The dashboard is for the operator. The owner’s interface is the phone.
+**FR-20.** The generated file bundle is stored next to the profile (`data/sites/<project-id>/`) so an hours change redeploys without another full interview. The Netlify site id and the Cloudflare record id are stored on the project.
 
 ---
 
-## 13. Architecture
+## 11. Operator dashboard
 
-```text
-┌──────────────────┐     μ-law 8 kHz      ┌─────────────────────┐
-│ Phone (owner)    │ ◄──────────────────► │ Telephony provider  │
-└──────────────────┘                      └──────────┬──────────┘
-                                                     │ media stream
-                                                     ▼
-┌──────────────────┐   profile + status   ┌─────────────────────┐
-│ Operator web app │ ◄──────────────────► │ Porchline server    │
-└──────────────────┘                      │                     │
-                                          │  Pipecat +          │
-                                          │  pipecat-boson      │
-                                          │  Higgs Realtime     │
-                                          │  profile store      │
-                                          │  site generator     │
-                                          │  Netlify or Vercel  │
-                                          └──────────┬──────────┘
-                                                     │
-                                                     ▼
-                                          static site on subdomain
-```
+One screen.
 
-Suggested hackathon split:
+- Waiting: the Twilio number, and the project state (`draft`, `confirmed`, `deployed`, `dns_ready`).
+- During the call: transcript, profile card, timer.
+- On confirm: publish runs automatically. The screen shows progress and a cancel control until the deploy returns.
+- After deploy: preview link, the Cloudflare record, and Check DNS.
+- Errors from Higgs, Twilio, Netlify, and Cloudflare stay on this screen in plain language.
 
-| Piece | Choice | Why |
+The owner’s interface is the phone.
+
+---
+
+## 12. Stack
+
+Two processes. Python owns the live call. Next.js owns the dashboard, the HTML, and deploys. They share one JSON schema and talk over localhost HTTP.
+
+| Layer | Choice | Role |
 | --- | --- | --- |
-| Voice | Python, Pipecat, `pipecat-boson`, `BosonRealtimeLLMService` | Official Boson path. Handles audio, tools, and transcripts. |
-| Phone | A provider with a WebSocket media stream in G.711 μ-law | Matches `audio/pcmu` at 8000 Hz. |
-| API and dashboard | Small TypeScript app | Deploy status, CNAME card, DNS check. |
-| Site output | Static HTML or a tiny static export | Fast hosting, nothing to keep running per shop. |
-| Store | SQLite or a single JSON file per call for the demo | Enough for one shop live and a few rehearsals. |
-| Host | Netlify as the demo default, Vercel behind the same deployer interface | Both accept custom domains via CNAME. |
+| Language, voice | Python 3.11 | Pipecat and `pipecat-boson` are Python |
+| Voice HTTP | FastAPI + Uvicorn | Twilio webhooks, media-stream WebSocket, SSE, profile API |
+| Agent | Pipecat pipeline + `pipecat-boson` `BosonRealtimeLLMService` | Speech-to-speech. No separate STT or TTS stage around Higgs |
+| Model | `higgs-realtime` at `wss://api.boson.ai/v1/realtime/` | The only model on the call |
+| Transcript | `higgs-stt-3.1` on session input | Dashboard text. The model still understands audio if this is off |
+| Phone | Twilio Programmable Voice + Media Streams | Inbound call, μ-law 8 kHz, converted to 24 kHz PCM for Higgs |
+| Tunnel, local only | Cloudflare Tunnel (`cloudflared`) | Gives Twilio a public `wss` URL while we develop. This is not the DNS zone. |
+| Language, web | TypeScript on Node 20 | Dashboard, generator, deployers |
+| Web app | Next.js (App Router) + React | One operator screen and the publish/DNS routes |
+| Styling, dashboard | Tailwind CSS | Operator UI only. The customer site is plain CSS |
+| Styling, customer site | One HTML file + one CSS file | What gets deployed |
+| Profile contract | `packages/profile.schema.json` | Shared by Pydantic and Zod |
+| Database | SQLite file `data/porchline.db` | Projects, transcripts, deploy rows. Voice service owns the file |
+| Python DB access | `sqlite3` in the standard library | No ORM for v1 |
+| Deploy | Netlify REST API | The only host. Create the site, upload the bundle, attach the custom hostname |
+| DNS | Cloudflare DNS API | Upsert one DNS-only CNAME on the zone for `PORCHLINE_PARENT_DOMAIN` |
+| DNS check | Node `dns.promises.resolveCname`, then an HTTPS HEAD | Runs in the Next.js route |
+| Live UI | SSE from FastAPI | Transcript lines and profile patches |
+| Package manager, JS | npm | `apps/web` |
+| Package manager, Python | `venv` + pip | `services/voice` |
+| Config | `.env` at the repo root, loaded by both apps | Never committed. `.env.example` lists every key |
 
-Environment the server needs:
+We do not add LiveKit, a second LLM on the call, Redis, Postgres, Docker, or a monorepo build tool. Two folders and two start commands are the whole platform.
+
+### Who owns what
+
+| Concern | Owner |
+| --- | --- |
+| Twilio signature check, TwiML, media stream | `services/voice` |
+| Higgs session, tools, transcripts | `services/voice` |
+| SQLite | `services/voice` |
+| HTML render | `apps/web` |
+| Netlify deploy and custom domain | `apps/web` |
+| Cloudflare CNAME upsert and DNS check | `apps/web` |
+| Operator screen | `apps/web` |
+
+### HTTP between the two apps
+
+Voice is the source of truth for the call. Web is the source of truth for the deploy.
+
+| Call | From | To | When |
+| --- | --- | --- | --- |
+| `GET /projects/current` | Web | Voice | Dashboard load |
+| `GET /projects/{id}/stream` | Web (EventSource) | Voice | SSE: `transcript`, `profile`, `status`, `error` |
+| `POST /internal/publish` | Voice | Web | `publish_profile` succeeded |
+| `POST /internal/deploy-result` | Web | Voice | Deploy finished or failed, so the call can speak the preview host |
+| `POST /api/dns-check` | Dashboard | Web | Operator clicks Check DNS |
+
+`/internal/*` routes require `INTERNAL_SHARED_SECRET`. The browser never calls them.
+
+`POST /internal/publish` body is the profile JSON plus `projectId`. The web app refuses it when `confirmed` is not true. Response is `{ previewUrl, hostname, cnameTarget, cloudflareRecordId, status }`.
+
+### Twilio call path
+
+1. Twilio number voice webhook: `POST /twilio/voice`.
+2. Response is TwiML: `<Connect><Stream url="wss://<public-host>/twilio/stream"/></Connect>`.
+3. Pipecat Twilio serializer reads the media stream.
+4. Pipeline: transport input → context aggregator → `BosonRealtimeLLMService` → transport output → assistant aggregator.
+5. `realtime_service_mode` stays on. No extra STT or TTS processors.
+
+### Higgs session settings
+
+Set once in `session.update` through `BosonRealtimeLLMService`:
+
+- `model`: `higgs-realtime`
+- `voice`: `default`
+- audio format: 24 kHz PCM, which is what `pipecat-boson` sends. Twilio’s 8 kHz μ-law is converted at the serializer.
+- turn detection: `semantic_vad`
+- input transcription: `{ "model": "higgs-stt-3.1", "language": "en" }`
+- tools: the seven functions in FR-3
+- instructions: the call script in section 5
+
+Auth header on the server WebSocket: `Authorization: Bearer <BOSON_API_KEY>`.
+
+### Environment
+
+Voice reads:
 
 - `BOSON_API_KEY`
 - `BOSON_REALTIME_URL` = `wss://api.boson.ai/v1/realtime/`
 - `BOSON_REALTIME_MODEL` = `higgs-realtime`
-- Telephony credentials for the media stream
-- `NETLIFY_AUTH_TOKEN` or `VERCEL_TOKEN`
-- `PORCHLINE_PARENT_DOMAIN` — the domain whose subdomain gets the CNAME
-- `PORCHLINE_HOST` — `netlify` or `vercel`
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `PUBLIC_VOICE_WSS_URL` — the tunnel URL Twilio streams to
+- `WEB_BASE_URL` = `http://localhost:3000` in dev
+- `INTERNAL_SHARED_SECRET`
+- `DATABASE_PATH` = `data/porchline.db`
+
+Web reads:
+
+- `VOICE_BASE_URL` = `http://localhost:8000` in dev
+- `INTERNAL_SHARED_SECRET` — same value as voice
+- `PORCHLINE_PARENT_DOMAIN` — the zone apex, such as `example.com`. Subdomains are `{label}.{PORCHLINE_PARENT_DOMAIN}`
+- `NETLIFY_AUTH_TOKEN`
+- `CLOUDFLARE_API_TOKEN` — permission to edit DNS on this zone only
+- `CLOUDFLARE_ZONE_ID` — the zone id for `PORCHLINE_PARENT_DOMAIN`
+
+Web startup fails if any of those four are missing. The voice service does not read the Netlify or Cloudflare keys.
 
 ---
 
-## 14. Demo script for judges
+## 13. Repository layout
 
-Target length: 4 minutes on stage, 10 minutes on the phone if they want the full interview.
+```text
+porchline/
+  apps/web/                         Next.js operator app
+    src/app/page.tsx                dashboard
+    src/app/api/dns-check/route.ts
+    src/app/internal/publish/route.ts
+    src/generator/render.ts         profile JSON → HTML + CSS
+    src/generator/template.css
+    src/deploy/netlify.ts           create site, deploy files, attach hostname
+    src/dns/cloudflare.ts           upsert the DNS-only CNAME
+    src/profile/schema.ts           Zod from the shared JSON schema
+  services/voice/
+    pyproject.toml
+    porchline_voice/main.py         FastAPI app
+    porchline_voice/twilio.py       TwiML + media stream
+    porchline_voice/agent.py        Pipecat pipeline + Higgs
+    porchline_voice/tools.py        the seven tools
+    porchline_voice/store.py        SQLite
+    porchline_voice/events.py       SSE hub
+  packages/profile.schema.json
+  fixtures/rose-barber.json         complete confirmed profile for dev
+  data/                             gitignored: sqlite + generated sites
+  docs/PRD.md
+  .env.example
+  .gitignore
+  README.md
+```
 
-1. Open the dashboard. Show the number and a $10-credit framing: “this call should cost under a quarter.”
-2. Call from a phone. Let Higgs greet in `default` voice.
-3. Answer as a real shop. Example: “Rose Street Barber, haircuts and beard trims, Queen Street, Tuesday to Saturday 10 to 6, closed Sunday and Monday, haircut 28 dollars.”
-4. Interrupt once, so barge-in is visible.
+`fixtures/rose-barber.json` is the stand-in for a finished call. Phases 1 and 2 have to work with that file before Twilio or Higgs is wired.
+
+---
+
+## 14. Development plan
+
+Build in vertical slices. Each phase has a demo that does not need the later phases. Do not start Twilio until a fixture profile can already become a hosted page.
+
+Work happens on `main`. One phase, one commit, when that phase’s check passes.
+
+### Phase 0 — Boots
+
+Create the two app folders, `.env.example`, and gitignore entries for `.env`, `data/`, and `apps/web/.next`.
+
+Done when:
+
+- `uvicorn` serves `GET /health` on port 8000.
+- `next dev` serves the dashboard shell on port 3000.
+- The dashboard shell fetches `GET /projects/current` and renders an empty state when voice says there is no project.
+
+### Phase 1 — Profile and page, no network hosts
+
+Implement the JSON schema, the Zod and Pydantic models, and `render.ts`. Add a dev route `GET /preview/fixture` that renders `fixtures/rose-barber.json` as HTML.
+
+Done when:
+
+- The fixture page shows name, hours, services, and click-to-call in a phone-width browser.
+- An incomplete fixture (delete `hours`) fails validation and does not render.
+- `publish_profile`’s validation function, called in a unit test, rejects a profile that is missing a required field or has `confirmed: false`.
+
+### Phase 2 — Netlify and Cloudflare, still no phone
+
+`POST /internal/publish` accepts the fixture, writes `data/sites/<id>/`, deploys to Netlify, attaches `{slug}.{PORCHLINE_PARENT_DOMAIN}`, and upserts the Cloudflare CNAME. The dashboard gets a temporary “Deploy fixture” button so we can test this without a call. That button is removed in phase 5.
+
+Done when:
+
+- The fixture is live on a `*.netlify.app` URL.
+- Cloudflare shows one DNS-only CNAME for that subdomain, pointed at the Netlify hostname.
+- The apex record in the zone is unchanged.
+- A second deploy of the same `projectId` reuses the Netlify site and updates that same Cloudflare record.
+- Check DNS reports “CNAME matches” for the hostname, then “HTTPS ready” once Netlify’s certificate is up.
+
+### Phase 3 — Higgs without Twilio
+
+Add a local Pipecat WebSocket endpoint `WS /dev/stream` that takes PCM or μ-law from a small browser mic page at `/dev/call`. This page is for us, not for the shop owner. Tools write SQLite. SSE updates the dashboard.
+
+Done when:
+
+- Speaking to the mic creates a draft project.
+- Each tool updates the profile card.
+- Hanging up leaves the draft in SQLite.
+- A second local session with the same dev caller id continues that draft.
+- `publish_profile` during this call does not deploy yet. It only sets `confirmed` and logs that phase 5 will publish. This keeps the voice work unblocked by Netlify.
+
+### Phase 4 — Twilio
+
+Point a Twilio number at the tunnel. Replace the dev mic as the demo path. Keep `/dev/call` for days when the tunnel is down.
+
+Done when:
+
+- A cell phone call is answered by Higgs.
+- Interrupting the agent stops the audio.
+- Caller ID maps to the same project on a second call.
+- Invalid Twilio signatures are rejected.
+
+### Phase 5 — Confirm publishes
+
+Remove the fixture button from the dashboard. On `publish_profile`, voice calls `POST /internal/publish`, waits for the result, then speaks the preview host. Failures are spoken as “I saved your site details, and the publish step needs another try,” and the dashboard shows the host error.
+
+Done when:
+
+- A yes on the phone produces a Netlify URL whose page matches the tool-written profile.
+- A “not yet” leaves `confirmed` false and creates no deploy.
+- Redeploying after an hours change keeps the same Netlify site and the same Cloudflare record name.
+
+### Phase 6 — Dashboard is the operator view
+
+SSE is the only live channel. The empty state, in-call state, deploying state, and deployed state are all visible. `/dev/call` stays in the repo but is not linked from the main screen.
+
+Done when:
+
+- Refreshing the dashboard mid-call reconnects the stream and shows the current profile.
+- Higgs close codes from FR-9 appear as the strings in that requirement.
+- Check DNS reports the four states in FR-18 against `{slug}.{PORCHLINE_PARENT_DOMAIN}` after the Cloudflare write.
+
+### Phase 7 — Rehearsal
+
+Run the demo script in section 16 twice. The first run uses `/dev/call` if the tunnel is unnecessary. The second run is a real cell call through Twilio. The first run’s Cloudflare record should already resolve so the subdomain loads on stage.
+
+Done when the success criteria in section 17 all pass on that second run.
+
+---
+
+## 15. Local development
+
+From the repo root, two terminals:
+
+```powershell
+# Terminal A — voice
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .\services\voice
+uvicorn porchline_voice.main:app --reload --port 8000 --app-dir services\voice
+```
+
+```powershell
+# Terminal B — web
+cd apps\web
+npm install
+npm run dev
+```
+
+Phase 4 also needs a tunnel aimed at port 8000, and that HTTPS host written into `PUBLIC_VOICE_WSS_URL` and the Twilio voice webhook.
+
+Day-to-day rules:
+
+- Change the schema first, then Pydantic, then Zod, then the tool, then the template.
+- New dashboard behavior reads an API that already exists. Do not invent a parallel store in the browser.
+- Customer-site CSS lives in `src/generator/template.css`. Tailwind classes do not appear in generated HTML.
+- Secrets are read from the environment at startup. A missing required key fails startup with the key name, not a later stack trace mid-call.
+
+---
+
+## 16. Demo script
+
+About four minutes on stage. The phone interview itself can be shortened by using a project already confirmed in rehearsal, then placing a short second call that only changes Saturday hours. If the judges want the full interview, that call is about ten minutes and should be done before the stage slot, with the stage showing the recording of the dashboard plus the live URL.
+
+1. Open the dashboard. Show the Twilio number and an empty or draft project.
+2. Call from a phone. Higgs greets in the `default` voice.
+3. Give one shop: Rose Street Barber, haircuts and beard trims, Queen Street, Tuesday to Saturday 10 to 6, closed Sunday and Monday, haircut 28 dollars, label `rose-barber`.
+4. Interrupt once.
 5. Let the agent read the profile back. Say yes.
-6. Dashboard flips to deployed. Open the `*.netlify.app` or `*.vercel.app` preview on a phone-sized window.
-7. Show the CNAME row. If DNS was prepared before the talk, click Check DNS and open `https://<slug>.<parent-domain>`.
-8. End on the cost strip.
+6. Open the preview URL at phone width.
+7. Show the Cloudflare record. Open `https://rose-barber.{PORCHLINE_PARENT_DOMAIN}` after Check DNS says HTTPS ready.
 
-Rehearse the CNAME before the demo. DNS propagation is the only step that can miss a live window. The preview URL is the fallback that still proves the site exists.
-
----
-
-## 15. Success criteria
-
-The hackathon build is done when all of these are true:
-
-1. A real phone call is answered by Higgs Realtime, not by a text bot with a separate TTS pass.
-2. At least one complete profile is stored only through tool calls.
-3. Saying yes publishes; saying “not yet” does not.
-4. A preview URL loads the owner’s name, hours, and phone.
-5. The dashboard prints a correct CNAME for the chosen host.
-6. Either the subdomain loads after the record is saved, or Check DNS correctly reports that it is not ready.
-7. The cost strip shows an estimate using Boson’s published audio rates, and a rehearsed call estimates under **$0.50**.
+The subdomain is rehearsed earlier. If HTTPS is still provisioning on stage, the `*.netlify.app` preview is the proof that the page exists.
 
 ---
 
-## 16. Risks
+## 17. Success criteria
+
+1. A real phone call is answered by Higgs Realtime through Pipecat, with no separate TTS stage.
+2. The profile on the page was written only by tools.
+3. “Yes” publishes. “Not yet” does not.
+4. The preview URL shows the owner’s name, hours, and phone.
+5. Publish writes a DNS-only Cloudflare CNAME for `{label}.{PORCHLINE_PARENT_DOMAIN}` and leaves the apex alone.
+6. Check DNS matches that hostname, or it correctly reports that the record is not ready.
+7. A second call from the same number updates one field and redeploys the same Netlify site without creating a second Cloudflare record.
+
+---
+
+## 18. Risks
 
 | Risk | What we do |
 | --- | --- |
-| Free trial credit not claimed, or exhausted | Check workspace billing before the demo. Surface `4429` and quota errors in the UI. |
-| Phone audio format mismatch | Lock the session to `audio/pcmu` at 8000 Hz. Do not send 24 kHz PCM into an 8 kHz stream. |
-| Model publishes too early | `publish_profile` checks required fields and a confirmation flag the server sets only from an explicit tool call after the read-back. Instructions alone are not the gate. |
-| Misheard prices | Confirm money and hours in a follow-up utterance before the tool writes them. |
-| DNS not ready on stage | Treat the host preview URL as the proof. Attach the subdomain in a rehearsal. |
-| CNAME target changes between deploys | Prefer a stable site identity on the host. Warn if the target would change. |
-| LiveKit temptation | Docs say a first-party LiveKit plugin is not ready. Use Pipecat or a direct WebSocket. |
-| Scope creep into a website builder | One template. No editor in v1. |
+| Boson quota or bad API key | Fail voice startup if `BOSON_API_KEY` is empty. Show FR-9 errors on the dashboard. Claim trial credit before phase 3. |
+| Audio format mismatch | Keep the Pipecat pipeline at 24 kHz PCM. The dev mic downsamples to 24 kHz. Twilio μ-law is converted by `TwilioFrameSerializer`. |
+| Publish races the read-back | `publish_profile` checks required fields and `confirmed` on the server. Instructions are not the gate. |
+| Misheard price or hours | FR-7. The tool writes only the confirmed value. |
+| DNS or certificate slow on stage | `*.netlify.app` is the fallback. Write the Cloudflare record in phase 2, not live for the first time. |
+| Cloudflare proxy turned on | Create the record with `proxied: false`. Treat a proxied record as a failed publish. |
+| Wrong zone or apex edit | `CLOUDFLARE_ZONE_ID` must be the zone for `PORCHLINE_PARENT_DOMAIN`. The client may update only the shop CNAME. |
+| CNAME target changes | Reuse one Netlify site id per project, stored in SQLite. |
+| Twilio cannot reach localhost | Cloudflare Tunnel in phase 4. That tunnel is separate from the DNS zone and uses a different credential. `/dev/call` covers phases 3 and 6. |
+| Scope grows into a site builder | One template. The fixture button dies in phase 5. |
 
 ---
 
-## 17. Later, if the hackathon works
+## 19. After the hackathon
 
-- Call-back edits as the only CMS: “We’re closed next Monday.”
-- Higgs TTS 3 for an after-call text-message audio preview.
-- Owner-facing link to approve the page visually before the CNAME is advertised.
-- More than one subdomain per operator account.
-- A public price: $49 setup, $12 a month for phone updates, with Boson plus carrier cost shown internally so margin stays obvious.
+- Phone updates as the only CMS (“we’re closed next Monday”).
+- Drop `/dev/call` or hide it behind an env flag.
+- More than one project in the dashboard.
+- Owner-facing preview link before the subdomain is advertised.
 
 ---
 
-## 18. Resolved choices
-
-These are decided for the build unless you change them:
+## 20. Resolved choices
 
 | Choice | Decision |
 | --- | --- |
-| Product name | **Porchline** |
-| Boson surface | Higgs Realtime for the call. TTS and Avatar stay out of v1. |
-| Voice stack | Pipecat with `pipecat-boson` |
-| Audio | G.711 μ-law, 8000 Hz |
-| Site | One static page from the confirmed profile |
-| Hosts | Netlify and Vercel, Netlify as the demo default |
-| Domain | Operator edits a CNAME on a subdomain. No registrar automation. |
-| Price story | Under about $0.25 of Boson per normal intake. Sell setup at $49, or run the demo free on trial credit. |
+| Product name | Porchline |
+| Voice | Python 3.11, FastAPI, Pipecat, `pipecat-boson`, `higgs-realtime` |
+| Phone | Twilio Media Streams, G.711 μ-law, 8000 Hz |
+| Transcript | `higgs-stt-3.1` inside the same session |
+| Operator app | Next.js, TypeScript, Tailwind |
+| Customer site | Static HTML and CSS from `fixtures` or a confirmed profile |
+| Store | SQLite owned by the voice service |
+| Shared contract | `packages/profile.schema.json` |
+| Host | Netlify only |
+| Parent domain | `PORCHLINE_PARENT_DOMAIN` in the environment |
+| DNS | Cloudflare zone for that domain. One DNS-only CNAME per shop |
+| Build order | Fixture page → Netlify + Cloudflare → local Higgs → Twilio → publish on yes → rehearsal |
