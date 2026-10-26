@@ -101,6 +101,7 @@ async def _run_pipeline(
     store: Store,
     hub: EventHub,
     caller: str | None = None,
+    call_sid: str | None = None,
 ) -> None:
     api_key = os.environ.get("BOSON_API_KEY", "").strip()
     if not api_key:
@@ -108,7 +109,19 @@ async def _run_pipeline(
         await websocket.close()
         return
 
-    toolkit = ToolKit(store, hub, project_id)
+    async def close_local() -> None:
+        try:
+            await websocket.close()
+        except Exception:  # noqa: BLE001 - already closing
+            pass
+
+    toolkit = ToolKit(
+        store,
+        hub,
+        project_id,
+        call_sid=call_sid,
+        on_local_hangup=close_local,
+    )
     tools = toolkit.handlers()
     llm = BosonRealtimeLLMService(
         url=os.environ.get("BOSON_REALTIME_URL", "wss://api.boson.ai/v1/realtime/"),
@@ -192,7 +205,15 @@ async def run_dev_call(websocket: WebSocket, store: Store, hub: EventHub, caller
     hub.publish(project["id"], {"type": "status", "project": project})
     await websocket.send_text(json.dumps({"type": "ready", "projectId": project["id"]}))
     try:
-        await _run_pipeline(websocket, Pcm24kSerializer(), project["id"], store, hub, caller)
+        await _run_pipeline(
+            websocket,
+            Pcm24kSerializer(),
+            project["id"],
+            store,
+            hub,
+            caller,
+            call_sid=None,
+        )
     finally:
         ended = store.mark_call_ended(project["id"])
         if ended is not None:
@@ -223,7 +244,15 @@ async def run_twilio_call(websocket: WebSocket, store: Store, hub: EventHub) -> 
         params=TwilioFrameSerializer.InputParams(sample_rate=SAMPLE_RATE),
     )
     try:
-        await _run_pipeline(websocket, serializer, project["id"], store, hub, project.get("callerId"))
+        await _run_pipeline(
+            websocket,
+            serializer,
+            project["id"],
+            store,
+            hub,
+            project.get("callerId"),
+            call_sid=call_sid,
+        )
     finally:
         ended = store.mark_call_ended(project["id"])
         if ended is not None:

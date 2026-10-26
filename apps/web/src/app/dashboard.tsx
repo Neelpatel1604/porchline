@@ -35,15 +35,6 @@ type Project = {
   updatedAt?: string | null;
 };
 
-type FixtureResult = {
-  status: string;
-  message?: string;
-  previewUrl?: string;
-  hostname?: string;
-  builderSource?: "gemini" | "template";
-  builderNote?: string;
-};
-
 const LIVE_IDLE_MS = 90_000;
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -142,8 +133,6 @@ function TranscriptBubbles({ lines, follow }: { lines: TranscriptLine[]; follow?
 export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
-  const [fixture, setFixture] = useState<FixtureResult | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<Project[]>([]);
@@ -251,15 +240,6 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
     }
   }
 
-  async function deployFixture() {
-    setBusy("Designing and publishing the Rose Street Barber fixture…");
-    setFixture(null);
-    const response = await fetch("/api/deploy-fixture", { method: "POST" });
-    const body = (await response.json()) as FixtureResult;
-    setFixture(body);
-    setBusy(null);
-  }
-
   async function cancelPublish() {
     if (!project) return;
     await fetch(`${voiceBaseUrl}/projects/${project.id}/cancel`, { method: "POST" });
@@ -267,8 +247,6 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
 
   const inFlight = project?.status === "designing" || project?.status === "deploying";
   const showCallData = live || inFlight;
-  const preview = fixture?.previewUrl || (showCallData ? project?.previewUrl : null);
-  const hostname = fixture?.hostname || (showCallData ? project?.hostname : null);
   const lines = showCallData ? (project?.transcript ?? []) : [];
   const stageStatus = statusLabel(showCallData ? project : null, live, elapsed);
 
@@ -308,7 +286,6 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
           {voiceError}
         </p>
       ) : null}
-      {busy ? <p className="mx-auto mt-5 max-w-7xl text-sm text-amber-200">{busy}</p> : null}
 
       <section className="mx-auto mt-6 grid max-w-7xl gap-5 lg:grid-cols-[1.35fr_0.9fr] lg:items-stretch">
         <article className="flex h-[min(70vh,40rem)] flex-col overflow-hidden rounded-3xl bg-[#171a22]/90 ring-1 ring-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.35)]">
@@ -426,41 +403,6 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
             ) : null}
           </div>
         </article>
-      </section>
-
-      <section className="mx-auto mt-5 flex max-w-7xl flex-wrap items-center justify-between gap-4 rounded-3xl bg-white/[0.04] px-5 py-4 ring-1 ring-white/10">
-        <div>
-          <h2 className="font-display text-xl">Published site</h2>
-          <p className="text-sm text-white/50">
-            {preview ? "Open the live Netlify link." : "Publish from a call, or deploy the fixture for a dry run."}
-          </p>
-          {hostname ? <p className="mt-1 text-xs text-white/40">{hostname}</p> : null}
-          {fixture?.builderSource ? (
-            <p className="mt-1 text-xs text-white/40">Builder: {fixture.builderSource}</p>
-          ) : null}
-          {fixture?.message || fixture?.builderNote ? (
-            <p className="mt-2 text-sm text-rose-300">{fixture.message || fixture.builderNote}</p>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {preview ? (
-            <a
-              className="rounded-full bg-amber-400 px-5 py-2.5 text-sm font-semibold text-[#1a1208] hover:bg-amber-300"
-              href={preview}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open live site
-            </a>
-          ) : null}
-          <button
-            className="rounded-full border border-white/20 px-5 py-2.5 text-sm text-white/85 hover:bg-white/5"
-            onClick={deployFixture}
-            type="button"
-          >
-            Deploy fixture
-          </button>
-        </div>
       </section>
 
       {historyOpen ? (

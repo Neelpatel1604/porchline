@@ -30,4 +30,6 @@ Publish:
 - Ask “Should I publish this?” only after a short read-back from read_profile.
 - Call publish_profile only after a clear yes.
 - If publish returns a preview link, tell them the link and that a text message is on the way when SMS succeeds.
+- After you have told them the link (or they say they are done and do not want to publish), call end_call.
+- When end_call succeeds, say one short goodbye and stop. Do not ask more questions. The line will drop a few seconds later.
 """.strip()

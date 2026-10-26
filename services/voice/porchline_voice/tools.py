@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from porchline_voice.events import EventHub
@@ -14,6 +16,7 @@ from porchline_voice.profile import (
 from porchline_voice.publish_client import request_publish
 from porchline_voice.sms import send_site_sms
 from porchline_voice.store import Store
+from porchline_voice.twilio_http import hangup_call
 
 try:
     from pipecat.services.llm_service import FunctionCallParams
@@ -32,10 +35,20 @@ def _parse_day(value: str) -> dict[str, Any]:
 
 
 class ToolKit:
-    def __init__(self, store: Store, hub: EventHub, project_id: str) -> None:
+    def __init__(
+        self,
+        store: Store,
+        hub: EventHub,
+        project_id: str,
+        call_sid: str | None = None,
+        on_local_hangup: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
         self.store = store
         self.hub = hub
         self.project_id = project_id
+        self.call_sid = call_sid
+        self.on_local_hangup = on_local_hangup
+        self._hangup_scheduled = False
 
     def handlers(self) -> list[Any]:
         return [
@@ -46,6 +59,7 @@ class ToolKit:
             self.save_site_style,
             self.read_profile,
             self.publish_profile,
+            self.end_call,
         ]
 
     def _profile(self) -> dict[str, Any]:
@@ -297,9 +311,50 @@ class ToolKit:
                 "hostname": result.get("hostname"),
                 "sms": sms,
                 "message": (
-                    "Site published. Text message sent with the link."
-                    if sms.get("ok")
-                    else f"Site published. Text failed: {sms.get('message')}. Speak the preview link."
+                    (
+                        "Site published. Text message sent with the link. "
+                        if sms.get("ok")
+                        else f"Site published. Text failed: {sms.get('message')}. Speak the preview link. "
+                    )
+                    + "Tell them the link briefly, then call end_call."
                 ),
             }
         )
+
+    async def end_call(self, params: FunctionCallParams, reason: str = "") -> None:
+        """Hang up after intake is finished. Say a short goodbye first; the line drops a few seconds later.
+
+        Use after publish succeeds and you told them the link, or when they clearly say they are done
+        and do not want to keep talking.
+
+        Args:
+            reason: Optional short note such as 'published' or 'owner done'.
+        """
+        if self._hangup_scheduled:
+            await params.result_callback({"ok": True, "message": "Hangup already scheduled. Say goodbye once."})
+            return
+        self._hangup_scheduled = True
+        await params.result_callback(
+            {
+                "ok": True,
+                "reason": reason or "done",
+                "message": (
+                    "Say one short goodbye. Do not ask more questions. "
+                    "The call will disconnect in a few seconds."
+                ),
+            }
+        )
+        asyncio.create_task(self._hangup_after_goodbye())
+
+    async def _hangup_after_goodbye(self) -> None:
+        await asyncio.sleep(5)
+        if self.call_sid:
+            hangup_call(self.call_sid)
+        ended = self.store.mark_call_ended(self.project_id)
+        if ended is not None:
+            self.hub.publish(self.project_id, {"type": "status", "project": ended})
+        if self.on_local_hangup is not None:
+            try:
+                await self.on_local_hangup()
+            except Exception:  # noqa: BLE001 - hangup should be best-effort
+                pass
