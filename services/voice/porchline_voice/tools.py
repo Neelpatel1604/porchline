@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from porchline_voice.events import EventHub
@@ -20,6 +22,8 @@ try:
 except ImportError:  # pragma: no cover - allows unit tests before pipecat is imported
     FunctionCallParams = Any  # type: ignore[misc,assignment]
 
+EndCallFn = Callable[[], Awaitable[None]]
+
 
 def _parse_day(value: str) -> dict[str, Any]:
     text = value.strip().lower()
@@ -32,10 +36,18 @@ def _parse_day(value: str) -> dict[str, Any]:
 
 
 class ToolKit:
-    def __init__(self, store: Store, hub: EventHub, project_id: str) -> None:
+    def __init__(
+        self,
+        store: Store,
+        hub: EventHub,
+        project_id: str,
+        on_end_call: EndCallFn | None = None,
+    ) -> None:
         self.store = store
         self.hub = hub
         self.project_id = project_id
+        self._on_end_call = on_end_call
+        self._publish_lock = asyncio.Lock()
 
     def handlers(self) -> list[Any]:
         return [
@@ -46,6 +58,7 @@ class ToolKit:
             self.save_site_style,
             self.read_profile,
             self.publish_profile,
+            self.end_call,
         ]
 
     def _profile(self) -> dict[str, Any]:
@@ -291,53 +304,91 @@ class ToolKit:
         await params.result_callback({"ok": True, "profile": profile, "missing": missing_for_publish(profile)})
 
     async def publish_profile(self, params: FunctionCallParams) -> None:
-        """Publish after the owner clearly agrees. Requires a saved business name."""
-        current = self._profile()
-        missing = missing_for_publish(current)
-        if missing:
+        """Publish after the owner clearly agrees. Requires a saved business name. Call once only."""
+        if self._publish_lock.locked():
             await params.result_callback(
                 {
                     "ok": False,
-                    "missing": missing,
-                    "message": "Ask for the business name, save it after they confirm, then publish again.",
+                    "message": "Publish is already running. Wait for it — do not call publish_profile again.",
                 }
             )
             return
-        profile = prepare_for_publish(current)
-        profile["confirmed"] = True
-        project = self._write(profile, status="designing")
-        self.hub.publish(self.project_id, {"type": "status", "project": project})
-        result = await request_publish(project)
-        if result.get("status") == "error":
-            failed = self.store.set_status(self.project_id, "error", result.get("message"))
-            self.hub.publish(self.project_id, {"type": "error", "project": failed})
-            await params.result_callback(
-                {
-                    "ok": False,
-                    "message": "The details are saved. The publish step needs another try.",
-                    "detail": result.get("message"),
-                }
-            )
-            return
-        saved = self.store.save_deploy(self.project_id, result)
-        self.hub.publish(self.project_id, {"type": "status", "project": saved})
-        sms_to = str(profile.get("phone") or "").strip() or str(saved.get("callerId") or "")
-        sms = send_site_sms(
-            to_number=sms_to,
-            preview_url=str(result.get("previewUrl") or ""),
-            business_name=str(profile.get("businessName") or ""),
-        )
-        await params.result_callback(
-            {
-                "ok": True,
-                "previewUrl": result.get("previewUrl"),
-                "hostname": result.get("hostname"),
-                "sms": sms,
-                "message": (
-                    "Site published. Text message sent with the link. "
-                    if sms.get("ok")
-                    else f"Site published. Text failed: {sms.get('message')}. Speak the preview link. "
+        async with self._publish_lock:
+            existing = self.store.get(self.project_id)
+            if existing and existing.get("status") == "deployed" and existing.get("previewUrl"):
+                await params.result_callback(
+                    {
+                        "ok": True,
+                        "alreadyPublished": True,
+                        "previewUrl": existing.get("previewUrl"),
+                        "hostname": existing.get("hostname"),
+                        "message": "Already published. Tell them the link again if needed, then goodbye and end_call.",
+                    }
                 )
-                + "Say a short goodbye when done.",
-            }
+                return
+            if existing and existing.get("status") in {"designing", "deploying"}:
+                await params.result_callback(
+                    {
+                        "ok": False,
+                        "message": "Publish is already in progress. Wait — do not call publish_profile again.",
+                    }
+                )
+                return
+
+            current = self._profile()
+            missing = missing_for_publish(current)
+            if missing:
+                await params.result_callback(
+                    {
+                        "ok": False,
+                        "missing": missing,
+                        "message": "Ask for the business name, save it after they confirm, then publish again.",
+                    }
+                )
+                return
+            profile = prepare_for_publish(current)
+            profile["confirmed"] = True
+            project = self._write(profile, status="designing")
+            self.hub.publish(self.project_id, {"type": "status", "project": project})
+            result = await request_publish(project)
+            if result.get("status") == "error":
+                failed = self.store.set_status(self.project_id, "error", result.get("message"))
+                self.hub.publish(self.project_id, {"type": "error", "project": failed})
+                await params.result_callback(
+                    {
+                        "ok": False,
+                        "message": "The details are saved. The publish step needs another try.",
+                        "detail": result.get("message"),
+                    }
+                )
+                return
+            saved = self.store.save_deploy(self.project_id, result)
+            self.hub.publish(self.project_id, {"type": "status", "project": saved})
+            sms_to = str(profile.get("phone") or "").strip() or str(saved.get("callerId") or "")
+            sms = send_site_sms(
+                to_number=sms_to,
+                preview_url=str(result.get("previewUrl") or ""),
+                business_name=str(profile.get("businessName") or ""),
+            )
+            await params.result_callback(
+                {
+                    "ok": True,
+                    "previewUrl": result.get("previewUrl"),
+                    "hostname": result.get("hostname"),
+                    "sms": sms,
+                    "message": (
+                        "Site published. Text message sent with the link. "
+                        if sms.get("ok")
+                        else f"Site published. Text failed: {sms.get('message')}. Speak the preview link. "
+                    )
+                    + "Say a short goodbye, then call end_call. Do not publish again.",
+                }
+            )
+
+    async def end_call(self, params: FunctionCallParams) -> None:
+        """Hang up the phone call. Speak a brief goodbye first, then call this once."""
+        await params.result_callback(
+            {"ok": True, "message": "Ending the call after your goodbye."}
         )
+        if self._on_end_call is not None:
+            await self._on_end_call()

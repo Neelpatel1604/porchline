@@ -29,8 +29,10 @@ Phone number:
 
 Publish:
 - Ask “Should I publish this?” only after a short read-back from read_profile.
-- Call publish_profile only after a clear yes and only when read_profile shows a business name.
+- Call publish_profile only once after a clear yes and only when read_profile shows a business name.
+- Never call publish_profile again while one is running, or after it already returned a preview link.
 - If publish returns a preview link, tell them the link and that a text message is on the way when SMS succeeds.
+- After goodbye (publish done, or they say they are finished), call end_call so Twilio hangs up. Do not leave the line open.
 """.strip()
 
 RESUME_INSTRUCTIONS = """

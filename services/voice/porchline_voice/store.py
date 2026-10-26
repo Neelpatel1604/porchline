@@ -45,7 +45,7 @@ class Store:
             self._conn.commit()
         # Older DBs may still have unused cname_target / cloudflare_record_id columns.
 
-    def close_stale_open_calls(self, max_idle_seconds: int = 90) -> None:
+    def close_stale_open_calls(self, max_idle_seconds: int = 25) -> None:
         """Mark abandoned sockets as ended so the dashboard never shows a fake live call."""
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=max_idle_seconds)).isoformat()
         self._conn.execute(

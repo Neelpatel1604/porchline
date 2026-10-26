@@ -118,6 +118,49 @@ async def deploy_result(request: Request) -> dict:
     return {"ok": True, "project": saved}
 
 
+@app.post("/internal/publish")
+async def internal_publish(request: Request) -> dict:
+    """Gemini + Netlify deploy on this host (EC2). Avoids Netlify function 504s."""
+    if not _secret_ok(request):
+        raise HTTPException(status_code=401, detail="bad secret")
+    from porchline_voice.site_publish import publish_profile_local
+
+    body = await request.json()
+    project_id = str(body.get("projectId") or "")
+    profile = body.get("profile") or {}
+    if not project_id:
+        raise HTTPException(status_code=400, detail="projectId required")
+    result = await asyncio.to_thread(
+        publish_profile_local,
+        project_id=project_id,
+        profile=profile if isinstance(profile, dict) else {},
+        netlify_site_id=body.get("netlifySiteId"),
+    )
+    if store.get(project_id) is not None:
+        saved = store.save_deploy(project_id, result)
+        hub.publish(project_id, {"type": "status", "project": saved})
+    return result
+
+
+@app.post("/twilio/connect-ended")
+async def twilio_connect_ended(request: Request) -> Response:
+    """Twilio Connect action — fires when the media stream ends (caller hung up)."""
+    form = await request.form()
+    params = {key: str(value) for key, value in form.items()}
+    if not signature_is_valid(request, params):
+        raise HTTPException(status_code=403, detail="invalid twilio signature")
+    project_id = request.query_params.get("projectId") or params.get("projectId")
+    project = store.get(project_id) if project_id else None
+    if project is None:
+        caller = params.get("From")
+        project = store.find_open_by_caller(caller) if caller else None
+    if project is not None:
+        ended = store.mark_call_ended(project["id"])
+        if ended is not None:
+            hub.publish(project["id"], {"type": "status", "project": ended})
+    return Response(content="<Response></Response>", media_type="text/xml")
+
+
 @app.post("/projects/{project_id}/cancel")
 def cancel_project(project_id: str) -> dict:
     project = store.get(project_id)

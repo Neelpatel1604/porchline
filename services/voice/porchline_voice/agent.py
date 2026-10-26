@@ -6,12 +6,14 @@ TwilioFrameSerializer converts it. The dev mic sends 24 kHz PCM directly.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from typing import Any
 
 from fastapi import WebSocket
 from pipecat.frames.frames import (
+    EndFrame,
     InputAudioRawFrame,
     LLMRunFrame,
     OutputAudioRawFrame,
@@ -122,7 +124,20 @@ async def _run_pipeline(
         await websocket.close()
         return
 
-    toolkit = ToolKit(store, hub, project_id)
+    hangup_lock = asyncio.Lock()
+    hangup_scheduled = False
+
+    async def schedule_hangup() -> None:
+        nonlocal hangup_scheduled
+        async with hangup_lock:
+            if hangup_scheduled:
+                return
+            hangup_scheduled = True
+        # Give TTS time to finish the goodbye before Twilio cuts the line.
+        await asyncio.sleep(3.5)
+        await worker.queue_frames([EndFrame(reason="agent_end_call")])
+
+    toolkit = ToolKit(store, hub, project_id, on_end_call=schedule_hangup)
     tools = toolkit.handlers()
     llm = BosonRealtimeLLMService(
         url=os.environ.get("BOSON_REALTIME_URL", "wss://api.boson.ai/v1/realtime/"),
@@ -192,9 +207,19 @@ async def _run_pipeline(
         ),
     )
 
+    def mark_ended() -> None:
+        ended = store.mark_call_ended(project_id)
+        if ended is not None:
+            hub.publish(project_id, {"type": "status", "project": ended})
+
     @transport.event_handler("on_client_connected")
     async def on_client_connected(_transport, _client):
         await worker.queue_frames([LLMRunFrame()])
+
+    @transport.event_handler("on_client_disconnected")
+    async def on_client_disconnected(_transport, _client):
+        # Do not wait for a blocked publish tool — clear Live as soon as the socket drops.
+        mark_ended()
 
     runner = WorkerRunner()
     await runner.add_workers(worker)

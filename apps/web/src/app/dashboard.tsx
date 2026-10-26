@@ -44,7 +44,8 @@ type FixtureResult = {
   builderNote?: string;
 };
 
-const LIVE_IDLE_MS = 90_000;
+/** Safety net only — real hangup should set callEndedAt via Twilio connect-ended / disconnect. */
+const LIVE_IDLE_MS = 20_000;
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
 function isCallLive(project: Project | null, now: number): boolean {

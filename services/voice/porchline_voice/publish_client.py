@@ -9,7 +9,12 @@ import httpx
 
 
 async def request_publish(project: dict[str, Any]) -> dict[str, Any]:
-    base = os.environ.get("WEB_BASE_URL", "http://localhost:3000").rstrip("/")
+    # Prefer the voice host (EC2) so Gemini+deploy is not killed by Netlify 504s.
+    base = (
+        os.environ.get("PUBLISH_BASE_URL")
+        or os.environ.get("VOICE_BASE_URL")
+        or "http://127.0.0.1:8000"
+    ).rstrip("/")
     secret = os.environ.get("INTERNAL_SHARED_SECRET", "")
     if not secret:
         return {"status": "error", "message": "Missing INTERNAL_SHARED_SECRET"}
@@ -19,7 +24,7 @@ async def request_publish(project: dict[str, Any]) -> dict[str, Any]:
         "netlifySiteId": project.get("netlifySiteId"),
     }
     try:
-        async with httpx.AsyncClient(timeout=180) as client:
+        async with httpx.AsyncClient(timeout=240) as client:
             response = await client.post(
                 f"{base}/internal/publish",
                 json=payload,
