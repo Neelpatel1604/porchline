@@ -1,4 +1,5 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 
 import { deployFiles, ensureSite, netlifyHost } from "@/deploy/netlify";
@@ -18,15 +19,23 @@ export type PublishResult = {
 };
 
 function siteDir(projectId: string): string {
-  return path.join(repoRoot(), "data", "sites", projectId);
+  // Netlify / serverless filesystems are read-only except tmp — never write into the deploy bundle.
+  const onNetlify = Boolean(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  const root = onNetlify ? path.join(os.tmpdir(), "porchline-sites") : path.join(repoRoot(), "data", "sites");
+  return path.join(root, projectId);
 }
 
 function writeBundle(projectId: string, html: string, css: string, js?: string): void {
-  const dir = siteDir(projectId);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "index.html"), html, "utf8");
-  fs.writeFileSync(path.join(dir, "styles.css"), css, "utf8");
-  if (js?.trim()) fs.writeFileSync(path.join(dir, "script.js"), js, "utf8");
+  try {
+    const dir = siteDir(projectId);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "index.html"), html, "utf8");
+    fs.writeFileSync(path.join(dir, "styles.css"), css, "utf8");
+    if (js?.trim()) fs.writeFileSync(path.join(dir, "script.js"), js, "utf8");
+  } catch (error) {
+    // Local cache only — Netlify deploy uses the in-memory bundle either way.
+    console.warn("site bundle cache skipped:", error);
+  }
 }
 
 export async function publishProfile(input: {
