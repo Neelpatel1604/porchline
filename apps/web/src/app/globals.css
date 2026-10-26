@@ -6,19 +6,19 @@
   color-scheme: dark;
   --font-display: "Syne", Georgia, serif;
   --font-body: "Source Sans 3", "Segoe UI", sans-serif;
-  /* Shared surface + type tokens — use these instead of one-off hex per page */
-  --pl-ink: #f4f1ea;
-  --pl-muted: rgba(244, 241, 234, 0.55);
-  --pl-subtle: rgba(244, 241, 234, 0.45);
-  --pl-panel: #171a22;
-  --pl-panel-inner: rgba(255, 255, 255, 0.045);
-  --pl-line: rgba(255, 255, 255, 0.1);
+  /* Higher contrast: darker page, brighter panels, clearer type */
+  --pl-ink: #f8f5ef;
+  --pl-muted: rgba(248, 245, 239, 0.86);
+  --pl-subtle: rgba(248, 245, 239, 0.72);
+  --pl-panel: #2a3140;
+  --pl-panel-inner: rgba(255, 255, 255, 0.1);
+  --pl-line: rgba(255, 255, 255, 0.18);
 }
 
 body {
   margin: 0;
   font-family: var(--font-body);
-  background: #0b0d12;
+  background: #06080c;
   color: var(--pl-ink);
 }
 
@@ -28,16 +28,15 @@ body {
 
 .stage-shell {
   background:
-    radial-gradient(900px 420px at 12% -8%, rgba(232, 140, 48, 0.22), transparent 55%),
-    radial-gradient(700px 380px at 92% 8%, rgba(64, 120, 180, 0.18), transparent 50%),
-    linear-gradient(180deg, #12151d 0%, #0b0d12 55%, #090b10 100%);
+    radial-gradient(820px 380px at 12% -10%, rgba(232, 140, 48, 0.16), transparent 55%),
+    radial-gradient(640px 320px at 90% 0%, rgba(64, 120, 180, 0.12), transparent 50%),
+    linear-gradient(180deg, #0c1018 0%, #06080c 60%, #05070b 100%);
 }
 
-/* Same panel look on homepage, directory, and dev mic */
 .pl-panel {
-  background: color-mix(in srgb, var(--pl-panel) 92%, transparent);
+  background: var(--pl-panel);
   border: 1px solid var(--pl-line);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
 }
 
 .pl-panel-inner {
@@ -59,7 +58,7 @@ body {
 
 .panel-scroll {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.32) transparent;
 }
 
 .panel-scroll::-webkit-scrollbar {
@@ -67,7 +66,7 @@ body {
 }
 
 .panel-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.26);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;

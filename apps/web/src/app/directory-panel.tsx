@@ -109,15 +109,7 @@ function emptyForm(profile?: Profile | null): EditForm {
   };
 }
 
-export function DirectoryPanel({
-  voiceBaseUrl,
-  open,
-  onClose,
-}: {
-  voiceBaseUrl: string;
-  open: boolean;
-  onClose: () => void;
-}) {
+export function DirectoryView({ voiceBaseUrl }: { voiceBaseUrl: string }) {
   const [contacts, setContacts] = useState<ContactSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ContactDetail | null>(null);
@@ -166,10 +158,9 @@ export function DirectoryPanel({
   }
 
   useEffect(() => {
-    if (!open) return;
     void loadContacts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- open only
-  }, [open, voiceBaseUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load on mount / voice host change
+  }, [voiceBaseUrl]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -252,26 +243,16 @@ export function DirectoryPanel({
     }
   }
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/60 p-3 backdrop-blur-sm md:p-6">
-      <div className="pl-panel flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-[1.75rem]">
-        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-white/10 px-5 py-5 md:px-7">
+    <div className="pl-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl">
+        <div className="flex shrink-0 flex-wrap items-end justify-between gap-4 border-b border-white/12 px-5 py-4">
           <div>
-            <p className="text-[0.7rem] uppercase tracking-[0.18em] text-amber-200/70">Operator directory</p>
-            <h2 className="font-display mt-1 text-3xl tracking-tight pl-text md:text-4xl">Customers &amp; calls</h2>
+            <p className="text-[0.7rem] uppercase tracking-[0.18em] text-amber-200/80">Operator directory</p>
+            <h2 className="font-display mt-1 text-2xl tracking-tight pl-text md:text-3xl">Customers &amp; calls</h2>
             <p className="mt-1 max-w-xl text-sm pl-muted">
               Numbers, saved profiles, and how often each caller reaches Porchline.
             </p>
           </div>
-          <button
-            className="rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 hover:bg-white/5"
-            onClick={onClose}
-            type="button"
-          >
-            Close
-          </button>
         </div>
 
         <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[0.95fr_1.35fr]">
@@ -412,7 +393,7 @@ export function DirectoryPanel({
                         ] as const
                       ).map(([key, label]) => (
                         <label key={key} className="block">
-                          <span className="text-[0.68rem] uppercase tracking-[0.14em] text-amber-200/65">{label}</span>
+                          <span className="text-[0.68rem] uppercase tracking-[0.14em] text-amber-200">{label}</span>
                           <input
                             className="mt-1.5 w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-300/40"
                             value={form[key]}
@@ -422,7 +403,7 @@ export function DirectoryPanel({
                       ))}
                     </div>
                     <label className="block">
-                      <span className="text-[0.68rem] uppercase tracking-[0.14em] text-amber-200/65">Summary</span>
+                      <span className="text-[0.68rem] uppercase tracking-[0.14em] text-amber-200">Summary</span>
                       <textarea
                         className="mt-1.5 w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-300/40"
                         rows={3}
@@ -441,7 +422,7 @@ export function DirectoryPanel({
                         ] as const
                       ).map(([key, label]) => (
                         <label key={key} className="block">
-                          <span className="text-[0.68rem] uppercase tracking-[0.14em] text-amber-200/65">{label}</span>
+                          <span className="text-[0.68rem] uppercase tracking-[0.14em] text-amber-200">{label}</span>
                           <input
                             className="mt-1.5 w-full rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-300/40"
                             value={form[key]}
@@ -536,7 +517,6 @@ export function DirectoryPanel({
             )}
           </section>
         </div>
-      </div>
     </div>
   );
 }
@@ -544,7 +524,7 @@ export function DirectoryPanel({
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="border-b border-white/10 py-3 last:border-0">
-      <dt className="text-[0.68rem] uppercase tracking-[0.14em] text-amber-200/65">{label}</dt>
+      <dt className="text-[0.68rem] uppercase tracking-[0.14em] text-amber-200">{label}</dt>
       <dd className="mt-1 text-sm leading-relaxed pl-text">{value}</dd>
     </div>
   );

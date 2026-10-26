@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { DirectoryPanel } from "./directory-panel";
+import { StageNav } from "./stage-nav";
 
 type TranscriptLine = { role: string; text: string; at: string };
 
@@ -90,7 +90,7 @@ function isSaveNote(role: string): boolean {
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="border-b border-white/10 py-3 last:border-0">
-      <dt className="text-[0.7rem] uppercase tracking-[0.16em] text-amber-200/70">{label}</dt>
+      <dt className="text-[0.7rem] uppercase tracking-[0.16em] text-amber-200">{label}</dt>
       <dd className="mt-1 text-base pl-text">{value}</dd>
     </div>
   );
@@ -136,7 +136,6 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
-  const [directoryOpen, setDirectoryOpen] = useState(false);
   const [followLatest, setFollowLatest] = useState(true);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const transcriptPaneRef = useRef<HTMLDivElement | null>(null);
@@ -226,174 +225,144 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
   const stageStatus = statusLabel(showCallData ? project : null, live, elapsed);
 
   return (
-    <main className="stage-shell min-h-screen px-4 py-6 text-white md:px-8 md:py-8">
-      <header className="mx-auto flex max-w-7xl flex-wrap items-end justify-between gap-6 border-b border-white/10 pb-6">
-        <div>
-          <p className="font-display text-5xl tracking-tight md:text-6xl">Porchline</p>
-          <p className="mt-2 max-w-xl text-base pl-muted">
-            Live operator stage — watch the call, the saved facts, and the site as they land.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div
-            className={`rounded-full px-4 py-2 text-sm font-medium ${
-              live ? "bg-emerald-400/20 text-emerald-200 ring-1 ring-emerald-300/40" : "bg-white/10 text-white/70"
-            }`}
-          >
-            {live ? <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-300" /> : null}
-            {stageStatus}
-          </div>
-          <button
-            className="rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 hover:bg-white/5"
-            onClick={() => setDirectoryOpen(true)}
-            type="button"
-          >
-            Directory
-          </button>
-          <a className="rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 hover:bg-white/5" href="/dev/call">
-            Dev mic
-          </a>
-        </div>
-      </header>
+    <main className="stage-shell flex h-dvh flex-col overflow-hidden px-4 py-4 text-white md:px-8 md:py-5">
+      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-4">
+        <StageNav status={stageStatus} live={live} />
 
-      {voiceError ? (
-        <p className="mx-auto mt-5 max-w-7xl rounded-2xl bg-rose-500/15 px-4 py-3 text-sm text-rose-100 ring-1 ring-rose-400/30">
-          {voiceError}
-        </p>
-      ) : null}
-      <section className="mx-auto mt-6 grid max-w-7xl gap-5 lg:grid-cols-[1.35fr_0.9fr] lg:items-stretch">
-        <article className="pl-panel flex h-[min(70vh,40rem)] flex-col overflow-hidden rounded-3xl">
-          <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-            <div>
-              <h2 className="font-display text-2xl tracking-tight pl-text">Live transcript</h2>
-              <p className="text-sm pl-muted">
-                {showCallData
-                  ? followLatest
-                    ? "Following the latest line — green Saved lines are what went into the DB"
-                    : "Scroll follow paused — jump to bottom to resume"
-                  : "Appears when a call is in progress"}
-              </p>
+        {voiceError ? (
+          <p className="shrink-0 rounded-2xl bg-rose-500/20 px-4 py-3 text-sm text-rose-50 ring-1 ring-rose-300/35">
+            {voiceError}
+          </p>
+        ) : null}
+
+        <section className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[1.35fr_0.95fr]">
+          <article className="pl-panel flex min-h-0 flex-col overflow-hidden rounded-3xl">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/12 px-5 py-3">
+              <div>
+                <h2 className="font-display text-xl tracking-tight pl-text">Live transcript</h2>
+                <p className="text-sm pl-muted">
+                  {showCallData
+                    ? followLatest
+                      ? "Following latest — green lines are DB saves"
+                      : "Scroll follow paused"
+                    : "Appears when a call is in progress"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {showCallData ? <p className="text-sm pl-subtle">{lines.length} lines</p> : null}
+                {showCallData && !followLatest ? (
+                  <button
+                    className="rounded-full bg-amber-400 px-3 py-1 text-xs font-semibold text-[#1a1208]"
+                    onClick={() => setFollowLatest(true)}
+                    type="button"
+                  >
+                    Jump to latest
+                  </button>
+                ) : null}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              {showCallData ? <p className="text-sm text-white/45">{lines.length} lines</p> : null}
-              {showCallData && !followLatest ? (
-                <button
-                  className="rounded-full bg-amber-400 px-3 py-1 text-xs font-semibold text-[#1a1208]"
-                  onClick={() => setFollowLatest(true)}
-                  type="button"
-                >
-                  Jump to latest
-                </button>
+            <div
+              ref={transcriptPaneRef}
+              onScroll={onTranscriptScroll}
+              className="panel-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4"
+            >
+              {showCallData && lines.length ? (
+                <>
+                  <TranscriptBubbles lines={lines} follow={followLatest} />
+                  <div ref={transcriptEndRef} />
+                </>
+              ) : (
+                <div className="flex h-full items-center justify-center text-center pl-subtle">
+                  <p>
+                    {live ? "Waiting for speech…" : "Waiting for a call"}
+                    <br />
+                    <span className="text-sm pl-muted">
+                      {live
+                        ? "Owner and agent lines appear here live."
+                        : "The stage stays clear until someone dials in."}
+                    </span>
+                  </p>
+                </div>
+              )}
+            </div>
+          </article>
+
+          <article className="pl-panel flex min-h-0 flex-col overflow-hidden rounded-3xl">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/12 px-5 py-3">
+              <div>
+                <h2 className="font-display text-xl tracking-tight pl-text">Saved profile</h2>
+                <p className="text-sm pl-muted">
+                  {showCallData ? "Facts written by tools this call" : "Fills in during the live call"}
+                </p>
+              </div>
+              {showCallData && project?.callerId ? (
+                <p className="rounded-full bg-white/10 px-3 py-1 text-xs pl-muted">{project.callerId}</p>
               ) : null}
             </div>
-          </div>
-          <div
-            ref={transcriptPaneRef}
-            onScroll={onTranscriptScroll}
-            className="panel-scroll flex-1 space-y-3 overflow-y-auto px-5 py-5"
-          >
-            {showCallData && lines.length ? (
-              <>
-                <TranscriptBubbles lines={lines} follow={followLatest} />
-                <div ref={transcriptEndRef} />
-              </>
-            ) : (
-              <div className="flex h-full min-h-[16rem] items-center justify-center text-center pl-subtle">
-                <p>
-                  {live ? "Waiting for speech…" : "Waiting for a call"}
-                  <br />
-                  <span className="text-sm pl-muted">
-                    {live
-                      ? "Owner and agent lines appear here live."
-                      : "The stage stays clear until someone dials in."}
-                  </span>
-                </p>
-              </div>
-            )}
-          </div>
-        </article>
 
-        <article className="pl-panel flex h-[min(70vh,40rem)] flex-col overflow-hidden rounded-3xl">
-          <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
-            <div>
-              <h2 className="font-display text-2xl tracking-tight pl-text">Saved profile</h2>
-              <p className="text-sm pl-muted">
-                {showCallData ? "Facts written by tools this call" : "Fills in during the live call"}
-              </p>
-            </div>
-            {showCallData && project?.callerId ? (
-              <p className="rounded-full bg-white/5 px-3 py-1 text-xs pl-subtle">{project.callerId}</p>
-            ) : null}
-          </div>
+            <div className="panel-scroll min-h-0 flex-1 overflow-y-auto px-5 py-2">
+              {showCallData && project ? (
+                <dl>
+                  <Fact label="Business" value={project.profile.businessName || "—"} />
+                  <Fact
+                    label="Category"
+                    value={project.profile.category ? project.profile.category.replaceAll("_", " ") : "—"}
+                  />
+                  <Fact label="Summary" value={project.profile.summary || "—"} />
+                  <Fact label="Phone" value={project.profile.phone || "—"} />
+                  <Fact label="Hours" value={formatHours(project)} />
+                  <Fact
+                    label="Services"
+                    value={
+                      project.profile.services?.length
+                        ? project.profile.services.map((service) => service.name).join(", ")
+                        : "—"
+                    }
+                  />
+                  <Fact
+                    label="Style"
+                    value={
+                      [project.profile.vibe, project.profile.look, project.profile.heroLine, project.profile.audience]
+                        .filter(Boolean)
+                        .join(" · ") || "—"
+                    }
+                  />
+                </dl>
+              ) : (
+                <p className="mt-6 text-sm pl-muted">Place a call to start filling this card.</p>
+              )}
 
-          <div className="panel-scroll flex-1 overflow-y-auto px-5 py-2">
-            {showCallData && project ? (
-              <dl>
-                <Fact label="Business" value={project.profile.businessName || "—"} />
-                <Fact
-                  label="Category"
-                  value={project.profile.category ? project.profile.category.replaceAll("_", " ") : "—"}
-                />
-                <Fact label="Summary" value={project.profile.summary || "—"} />
-                <Fact label="Phone" value={project.profile.phone || "—"} />
-                <Fact label="Hours" value={formatHours(project)} />
-                <Fact
-                  label="Services"
-                  value={
-                    project.profile.services?.length
-                      ? project.profile.services.map((service) => service.name).join(", ")
-                      : "—"
-                  }
-                />
-                <Fact
-                  label="Style"
-                  value={
-                    [project.profile.vibe, project.profile.look, project.profile.heroLine, project.profile.audience]
-                      .filter(Boolean)
-                      .join(" · ") || "—"
-                  }
-                />
-              </dl>
-            ) : (
-              <p className="mt-8 text-sm pl-muted">Place a call to start filling this card.</p>
-            )}
-
-            {showCallData && project?.error ? <p className="mt-3 text-sm text-rose-300">{project.error}</p> : null}
-            {preview ? (
-              <a
-                className="mt-4 inline-flex rounded-full bg-amber-400 px-4 py-2 text-sm font-semibold text-[#1a1208] hover:bg-amber-300"
-                href={preview}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open site
-              </a>
-            ) : null}
-            {inFlight && project ? (
-              <div className="mt-4 space-y-3 rounded-2xl bg-amber-400/10 p-4 ring-1 ring-amber-300/20">
-                <p className="text-sm text-amber-100">
-                  {project.status === "designing"
-                    ? "Gemini is designing the site, then Netlify will publish it."
-                    : "Publishing to Netlify…"}
-                </p>
-                <button
-                  className="rounded-full border border-amber-200/40 px-4 py-2 text-sm text-amber-50"
-                  onClick={cancelPublish}
-                  type="button"
+              {showCallData && project?.error ? <p className="mt-3 text-sm text-rose-200">{project.error}</p> : null}
+              {preview ? (
+                <a
+                  className="mt-4 inline-flex rounded-full bg-amber-400 px-4 py-2 text-sm font-semibold text-[#1a1208] hover:bg-amber-300"
+                  href={preview}
+                  target="_blank"
+                  rel="noreferrer"
                 >
-                  Cancel publish
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </article>
-      </section>
-
-      <DirectoryPanel
-        open={directoryOpen}
-        voiceBaseUrl={voiceBaseUrl}
-        onClose={() => setDirectoryOpen(false)}
-      />
+                  Open site
+                </a>
+              ) : null}
+              {inFlight && project ? (
+                <div className="mt-4 space-y-3 rounded-2xl bg-amber-400/15 p-4 ring-1 ring-amber-300/30">
+                  <p className="text-sm text-amber-50">
+                    {project.status === "designing"
+                      ? "Gemini is designing the site, then Netlify will publish it."
+                      : "Publishing to Netlify…"}
+                  </p>
+                  <button
+                    className="rounded-full border border-amber-200/40 px-4 py-2 text-sm text-amber-50"
+                    onClick={cancelPublish}
+                    type="button"
+                  >
+                    Cancel publish
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </article>
+        </section>
+      </div>
     </main>
   );
 }
