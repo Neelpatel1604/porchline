@@ -13,7 +13,7 @@ from porchline_voice.profile import (
     normalize_phone,
     prepare_for_publish,
 )
-from porchline_voice.publish_client import request_publish
+from porchline_voice.site_publish import publish_profile_local
 from porchline_voice.sms import send_site_sms
 from porchline_voice.store import Store
 
@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover - allows unit tests before pipecat is im
     FunctionCallParams = Any  # type: ignore[misc,assignment]
 
 EndCallFn = Callable[[], Awaitable[None]]
+PublishDoneFn = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 def _parse_day(value: str) -> dict[str, Any]:
@@ -42,12 +43,18 @@ class ToolKit:
         hub: EventHub,
         project_id: str,
         on_end_call: EndCallFn | None = None,
+        on_publish_done: PublishDoneFn | None = None,
+        caller_id: str | None = None,
     ) -> None:
         self.store = store
         self.hub = hub
         self.project_id = project_id
         self._on_end_call = on_end_call
+        self._on_publish_done = on_publish_done
+        self.caller_id = (caller_id or "").strip() or None
         self._publish_lock = asyncio.Lock()
+        self._publish_task: asyncio.Task[None] | None = None
+        self._publish_result: dict[str, Any] | None = None
 
     def handlers(self) -> list[Any]:
         return [
@@ -58,6 +65,7 @@ class ToolKit:
             self.save_site_style,
             self.read_profile,
             self.publish_profile,
+            self.check_publish_status,
             self.end_call,
         ]
 
@@ -135,10 +143,10 @@ class ToolKit:
         address: str = "",
         serviceArea: str = "",
     ) -> None:
-        """Save the public phone and optional email, address, or service area. Never invent an email or address.
+        """Save the public phone and optional email, address, or service area into the database. Never invent an email or address.
 
         Args:
-            phone: Public phone number. Spoken digits such as "three six five" are valid. Empty leaves the stored phone unchanged.
+            phone: Public phone number, or the caller ID digits when they agreed to use this phone number. Spoken digits such as "three six five" are valid. Empty leaves the stored phone unchanged.
             email: Exact email they spelled or said, or empty to leave it unchanged. Do not invent domains.
             address: Public street address they gave, or empty to leave it unchanged.
             serviceArea: Neighborhood or city they named, or empty to leave it unchanged.
@@ -304,86 +312,176 @@ class ToolKit:
         await params.result_callback({"ok": True, "profile": profile, "missing": missing_for_publish(profile)})
 
     async def publish_profile(self, params: FunctionCallParams) -> None:
-        """Publish after the owner clearly agrees. Requires a saved business name. Call once only."""
-        if self._publish_lock.locked():
-            await params.result_callback(
-                {
-                    "ok": False,
-                    "message": "Publish is already running. Wait for it — do not call publish_profile again.",
-                }
-            )
-            return
-        async with self._publish_lock:
-            existing = self.store.get(self.project_id)
-            if existing and existing.get("status") == "deployed" and existing.get("previewUrl"):
-                await params.result_callback(
-                    {
-                        "ok": True,
-                        "alreadyPublished": True,
-                        "previewUrl": existing.get("previewUrl"),
-                        "hostname": existing.get("hostname"),
-                        "message": "Already published. Tell them the link again if needed, then goodbye and end_call.",
-                    }
-                )
-                return
-            if existing and existing.get("status") in {"designing", "deploying"}:
-                await params.result_callback(
-                    {
-                        "ok": False,
-                        "message": "Publish is already in progress. Wait — do not call publish_profile again.",
-                    }
-                )
-                return
-
-            current = self._profile()
-            missing = missing_for_publish(current)
-            if missing:
-                await params.result_callback(
-                    {
-                        "ok": False,
-                        "missing": missing,
-                        "message": "Ask for the business name, save it after they confirm, then publish again.",
-                    }
-                )
-                return
-            profile = prepare_for_publish(current)
-            profile["confirmed"] = True
-            project = self._write(profile, status="designing")
-            self.hub.publish(self.project_id, {"type": "status", "project": project})
-            result = await request_publish(project)
-            if result.get("status") == "error":
-                failed = self.store.set_status(self.project_id, "error", result.get("message"))
-                self.hub.publish(self.project_id, {"type": "error", "project": failed})
-                await params.result_callback(
-                    {
-                        "ok": False,
-                        "message": "The details are saved. The publish step needs another try.",
-                        "detail": result.get("message"),
-                    }
-                )
-                return
-            saved = self.store.save_deploy(self.project_id, result)
-            self.hub.publish(self.project_id, {"type": "status", "project": saved})
-            sms_to = str(profile.get("phone") or "").strip() or str(saved.get("callerId") or "")
-            sms = send_site_sms(
-                to_number=sms_to,
-                preview_url=str(result.get("previewUrl") or ""),
-                business_name=str(profile.get("businessName") or ""),
-            )
+        """Start publishing in the background after the owner clearly agrees. Returns immediately — do not wait on the line. Call once only."""
+        existing = self.store.get(self.project_id)
+        if existing and existing.get("status") == "deployed" and existing.get("previewUrl"):
             await params.result_callback(
                 {
                     "ok": True,
-                    "previewUrl": result.get("previewUrl"),
-                    "hostname": result.get("hostname"),
-                    "sms": sms,
-                    "message": (
-                        "Site published. Text message sent with the link. "
-                        if sms.get("ok")
-                        else f"Site published. Text failed: {sms.get('message')}. Speak the preview link. "
-                    )
-                    + "Say a short goodbye, then call end_call. Do not publish again.",
+                    "alreadyPublished": True,
+                    "previewUrl": existing.get("previewUrl"),
+                    "hostname": existing.get("hostname"),
+                    "message": "Already published. Tell them the link again if needed, then goodbye and end_call.",
                 }
             )
+            return
+        if self._publish_task and not self._publish_task.done():
+            await params.result_callback(
+                {
+                    "ok": True,
+                    "started": True,
+                    "message": (
+                        "Publish is already running. Keep chatting lightly about their business "
+                        "(services, hours, neighborhood). Do not call publish_profile again. "
+                        "You will be told when the site is live."
+                    ),
+                }
+            )
+            return
+        if existing and existing.get("status") in {"designing", "deploying"}:
+            await params.result_callback(
+                {
+                    "ok": True,
+                    "started": True,
+                    "message": (
+                        "Publish is already running. Keep light small talk about the business. "
+                        "Do not call publish_profile again."
+                    ),
+                }
+            )
+            return
+
+        current = self._profile()
+        missing = missing_for_publish(current)
+        if missing:
+            await params.result_callback(
+                {
+                    "ok": False,
+                    "missing": missing,
+                    "message": "Ask for the business name, save it after they confirm, then publish again.",
+                }
+            )
+            return
+
+        profile = prepare_for_publish(current)
+        profile["confirmed"] = True
+        project = self._write(profile, status="designing")
+        self.hub.publish(self.project_id, {"type": "status", "project": project})
+        self._publish_result = None
+        self._publish_task = asyncio.create_task(
+            self._run_publish_job(dict(project)),
+            name=f"publish-{self.project_id}",
+        )
+        await params.result_callback(
+            {
+                "ok": True,
+                "started": True,
+                "message": (
+                    "Publish started in the background. Say you are building their site now. "
+                    "Then make light small talk about THEIR business only — services, hours, "
+                    "neighborhood, who they serve. Do not invent new facts. Do not call "
+                    "publish_profile again. When you hear the site is live, celebrate briefly, "
+                    "mention the text with the link, then goodbye and end_call."
+                ),
+            }
+        )
+
+    async def _run_publish_job(self, project: dict[str, Any]) -> None:
+        profile = project.get("profile") if isinstance(project.get("profile"), dict) else {}
+        try:
+            async with self._publish_lock:
+                result = await asyncio.to_thread(
+                    publish_profile_local,
+                    project_id=self.project_id,
+                    profile=profile,
+                    netlify_site_id=project.get("netlifySiteId"),
+                )
+        except Exception as exc:  # noqa: BLE001
+            result = {"status": "error", "projectId": self.project_id, "message": str(exc)}
+
+        if result.get("status") == "error":
+            failed = self.store.set_status(self.project_id, "error", result.get("message"))
+            self.hub.publish(self.project_id, {"type": "error", "project": failed})
+            self._publish_result = {
+                "ok": False,
+                "status": "error",
+                "message": result.get("message"),
+            }
+            if self._on_publish_done is not None:
+                await self._on_publish_done(self._publish_result)
+            return
+
+        saved = self.store.save_deploy(self.project_id, result)
+        self.hub.publish(self.project_id, {"type": "status", "project": saved})
+        sms_to = (
+            str(profile.get("phone") or "").strip()
+            or str(saved.get("callerId") or "")
+            or (self.caller_id or "")
+        )
+        sms = send_site_sms(
+            to_number=sms_to,
+            preview_url=str(result.get("previewUrl") or ""),
+            business_name=str(profile.get("businessName") or ""),
+        )
+        self._publish_result = {
+            "ok": True,
+            "status": "deployed",
+            "previewUrl": result.get("previewUrl"),
+            "hostname": result.get("hostname"),
+            "sms": sms,
+            "message": (
+                "Site is live. "
+                + (
+                    "A text with the link was sent. "
+                    if sms.get("ok")
+                    else f"Text failed ({sms.get('message')}); speak the link. "
+                )
+                + "Say something like: looks like your site is up. Then goodbye and end_call."
+            ),
+        }
+        if self._on_publish_done is not None:
+            await self._on_publish_done(self._publish_result)
+
+    async def check_publish_status(self, params: FunctionCallParams) -> None:
+        """Check whether the background publish finished. Use while chatting if you are unsure."""
+        if self._publish_result is not None:
+            await params.result_callback(self._publish_result)
+            return
+        existing = self.store.get(self.project_id)
+        if existing and existing.get("status") == "deployed" and existing.get("previewUrl"):
+            await params.result_callback(
+                {
+                    "ok": True,
+                    "status": "deployed",
+                    "previewUrl": existing.get("previewUrl"),
+                    "hostname": existing.get("hostname"),
+                    "message": "Site is already live. Tell them, then goodbye and end_call.",
+                }
+            )
+            return
+        if existing and existing.get("status") == "error":
+            await params.result_callback(
+                {
+                    "ok": False,
+                    "status": "error",
+                    "message": existing.get("error")
+                    or "Publish failed. Details are saved; offer to try again later.",
+                }
+            )
+            return
+        running = bool(self._publish_task and not self._publish_task.done())
+        await params.result_callback(
+            {
+                "ok": True,
+                "status": "designing" if running else (existing or {}).get("status") or "idle",
+                "message": (
+                    "Still publishing. Keep light small talk about their business. "
+                    "Do not call publish_profile again."
+                    if running
+                    else "No publish in progress."
+                ),
+            }
+        )
 
     async def end_call(self, params: FunctionCallParams) -> None:
         """Hang up the phone call. Speak a brief goodbye first, then call this once."""

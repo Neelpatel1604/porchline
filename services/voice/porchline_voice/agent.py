@@ -15,6 +15,7 @@ from fastapi import WebSocket
 from pipecat.frames.frames import (
     EndFrame,
     InputAudioRawFrame,
+    LLMMessagesAppendFrame,
     LLMRunFrame,
     OutputAudioRawFrame,
     TranscriptionFrame,
@@ -95,7 +96,10 @@ def _instructions(caller: str | None, profile: dict[str, Any] | None = None) -> 
     if caller and caller not in {"unknown", "dev-mic"}:
         parts.append(
             f"\n\nThe caller is dialing from {caller}. "
-            "If they say to use this number, or they speak these digits, confirm once then save_contact."
+            "When you need a site phone number, ask first: "
+            f"“Do you want me to use this phone number — {caller}?” "
+            "If yes, confirm once then save_contact with that exact number. "
+            "If no, ask them to say the digits, confirm, then save."
         )
     if profile_has_facts(profile):
         known = compact_profile_for_prompt(profile or {})
@@ -137,7 +141,49 @@ async def _run_pipeline(
         await asyncio.sleep(3.5)
         await worker.queue_frames([EndFrame(reason="agent_end_call")])
 
-    toolkit = ToolKit(store, hub, project_id, on_end_call=schedule_hangup)
+    async def notify_publish_done(result: dict[str, Any]) -> None:
+        """Interrupt small talk and let the agent announce the live site (or failure)."""
+        if result.get("ok"):
+            preview = result.get("previewUrl") or ""
+            sms = result.get("sms") if isinstance(result.get("sms"), dict) else {}
+            sms_bit = (
+                "A text with the link was sent."
+                if sms.get("ok")
+                else "The text failed — speak the preview link clearly."
+            )
+            content = (
+                "[Porchline system] The website publish just finished successfully. "
+                f"Preview URL: {preview}. {sms_bit} "
+                "Say casually that it looks like their site is up, mention the text if it sent, "
+                "then a short goodbye and call end_call."
+            )
+        else:
+            content = (
+                "[Porchline system] Publish failed. "
+                f"Detail: {result.get('message') or 'unknown error'}. "
+                "Tell them their details are saved and publish needs another try later. "
+                "Offer goodbye and end_call if they are done."
+            )
+        try:
+            await worker.queue_frames(
+                [
+                    LLMMessagesAppendFrame(
+                        messages=[{"role": "user", "content": content}],
+                        run_llm=True,
+                    )
+                ]
+            )
+        except Exception:  # noqa: BLE001 - call may already be over; SMS still sent
+            pass
+
+    toolkit = ToolKit(
+        store,
+        hub,
+        project_id,
+        on_end_call=schedule_hangup,
+        on_publish_done=notify_publish_done,
+        caller_id=caller,
+    )
     tools = toolkit.handlers()
     llm = BosonRealtimeLLMService(
         url=os.environ.get("BOSON_REALTIME_URL", "wss://api.boson.ai/v1/realtime/"),
