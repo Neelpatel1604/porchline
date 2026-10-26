@@ -1,0 +1,7 @@
+[build]
+  command = "npm run build"
+  # Required by @netlify/plugin-nextjs — must not equal the base directory (apps/web).
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
