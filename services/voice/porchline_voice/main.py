@@ -21,11 +21,26 @@ ROOT = Path(__file__).resolve().parents[3]
 load_dotenv(ROOT / ".env", override=True)
 print(f"twilio stream url: {os.environ.get('PUBLIC_VOICE_WSS_URL', '')}", flush=True)
 
+def _cors_origins() -> list[str]:
+    origins: list[str] = []
+    for part in (os.environ.get("CORS_ORIGINS") or "").split(","):
+        value = part.strip().rstrip("/")
+        if value and value not in origins:
+            origins.append(value)
+    web = (os.environ.get("WEB_BASE_URL") or "").strip().rstrip("/")
+    if web and web not in origins:
+        origins.append(web)
+    for local in ("http://localhost:3000", "http://127.0.0.1:3000"):
+        if local not in origins:
+            origins.append(local)
+    return origins
+
+
 app = FastAPI(title="Porchline voice")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_methods=["GET", "POST"],
+    allow_origins=_cors_origins(),
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
