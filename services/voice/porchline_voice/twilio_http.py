@@ -58,7 +58,7 @@ def public_http_base() -> str:
 
 def connect_twiml(project_id: str) -> str:
     # Connect action fires as soon as the stream ends (caller hangup), even if
-    # the agent pipeline is still blocked on publish — that clears "Live" fast.
+    # the agent pipeline is still blocked on publish - that clears "Live" fast.
     action = f"{public_http_base()}/twilio/connect-ended?projectId={project_id}"
     response = VoiceResponse()
     connect = Connect(action=action, method="POST")

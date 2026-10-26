@@ -394,7 +394,7 @@ class ToolKit:
         await params.result_callback({"ok": True, "profile": profile, "missing": missing_for_publish(profile)})
 
     async def publish_profile(self, params: FunctionCallParams) -> None:
-        """Start publishing in the background after the owner clearly agrees. Returns immediately — do not wait on the line. Call once only."""
+        """Start publishing in the background after the owner clearly agrees. Returns immediately - do not wait on the line. Call once only."""
         existing = self.store.get(self.project_id)
         if existing and existing.get("status") == "deployed" and existing.get("previewUrl"):
             await params.result_callback(
@@ -460,7 +460,7 @@ class ToolKit:
                 "started": True,
                 "message": (
                     "Publish started in the background. Say you are building their site now. "
-                    "Then make light small talk about THEIR business only — services, hours, "
+                    "Then make light small talk about THEIR business only - services, hours, "
                     "neighborhood, who they serve. Do not invent new facts. Do not call "
                     "publish_profile again. When you hear the site is live, celebrate briefly, "
                     "mention the text with the link, then goodbye and end_call."

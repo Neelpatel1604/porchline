@@ -10,7 +10,7 @@ export type SiteBundle = {
 };
 
 const SYSTEM = `You are an elite freelance web designer and front-end engineer.
-Build a COMPLETE one-page marketing website for a local business — not a thin brochure card.
+Build a COMPLETE one-page marketing website for a local business - not a thin brochure card.
 
 Return ONLY a JSON object with keys:
 - "html": complete HTML document starting with <!doctype html>
@@ -20,12 +20,12 @@ Return ONLY a JSON object with keys:
 No markdown fences. No commentary outside the JSON.
 
 Required page anatomy (always include):
-1. Sticky top navigation with the business name, in-page links (About, Services, Hours, Contact — only link sections that exist), and a primary CTA (Call / Visit / Contact).
+1. Sticky top navigation with the business name, in-page links (About, Services, Hours, Contact - only link sections that exist), and a primary CTA (Call / Visit / Contact).
 2. Full-bleed hero: brand name as the hero signal, one headline, one supporting sentence, CTA group, and a dominant visual plane (gradient, pattern, large type, or SVG composition). No floating badges or promo chips on the hero.
 3. About / story section.
 4. Services or menu section when services exist (cards or rows with optional prices).
 5. Hours section when hours exist.
-6. Visit / contact section (address or service area, phone, email, map placeholder only if address exists — do not invent an address).
+6. Visit / contact section (address or service area, phone, email, map placeholder only if address exists - do not invent an address).
 7. Full site footer: quick links, contact summary, and the exact text: Built with Porchline.
 
 Creative freedom:
@@ -46,7 +46,7 @@ Hard factual limits:
 - You may invent visual design, layout, section titles, and short UI chrome that does not claim new business facts.
 - Sparse profiles are valid: still ship the full nav + hero + footer shell; omit empty content sections.
 
-Quality bar: a paid custom one-pager a designer would ship — with navigation, footer, and proper webfonts — never a template dump.`;
+Quality bar: a paid custom one-pager a designer would ship - with navigation, footer, and proper webfonts - never a template dump.`;
 
 function extractJson(text: string): { html: string; css: string; js?: string } {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);

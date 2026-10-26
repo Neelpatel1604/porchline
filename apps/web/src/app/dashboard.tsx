@@ -37,7 +37,7 @@ type Project = {
   updatedAt?: string | null;
 };
 
-/** Safety net only — real hangup should set callEndedAt via Twilio connect-ended / disconnect. */
+/** Safety net only - real hangup should set callEndedAt via Twilio connect-ended / disconnect. */
 const LIVE_IDLE_MS = 20_000;
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
@@ -60,13 +60,13 @@ function statusLabel(project: Project | null, live: boolean, elapsed: string | n
 
 function formatHours(project: Project): string {
   const hours = project.profile.hours;
-  if (!hours) return "—";
+  if (!hours) return "-";
   const parts = DAYS.filter((day) => hours[day]).map((day) => {
     const value = hours[day];
     const label = value?.closed || !value?.open ? "Closed" : `${value.open}–${value.close}`;
     return `${day.slice(0, 3)} ${label}`;
   });
-  return parts.length ? parts.join(" · ") : "—";
+  return parts.length ? parts.join(" · ") : "-";
 }
 
 function roleLabel(role: string): string {
@@ -243,7 +243,7 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
                 <p className="text-sm pl-muted">
                   {showCallData
                     ? followLatest
-                      ? "Following latest — green lines are DB saves"
+                      ? "Following latest - green lines are DB saves"
                       : "Scroll follow paused"
                     : "Appears when a call is in progress"}
                 </p>
@@ -303,20 +303,20 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
             <div className="panel-scroll min-h-0 flex-1 overflow-y-auto px-5 py-2">
               {showCallData && project ? (
                 <dl>
-                  <Fact label="Business" value={project.profile.businessName || "—"} />
+                  <Fact label="Business" value={project.profile.businessName || "-"} />
                   <Fact
                     label="Category"
-                    value={project.profile.category ? project.profile.category.replaceAll("_", " ") : "—"}
+                    value={project.profile.category ? project.profile.category.replaceAll("_", " ") : "-"}
                   />
-                  <Fact label="Summary" value={project.profile.summary || "—"} />
-                  <Fact label="Phone" value={project.profile.phone || "—"} />
+                  <Fact label="Summary" value={project.profile.summary || "-"} />
+                  <Fact label="Phone" value={project.profile.phone || "-"} />
                   <Fact label="Hours" value={formatHours(project)} />
                   <Fact
                     label="Services"
                     value={
                       project.profile.services?.length
                         ? project.profile.services.map((service) => service.name).join(", ")
-                        : "—"
+                        : "-"
                     }
                   />
                   <Fact
@@ -324,7 +324,7 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
                     value={
                       [project.profile.vibe, project.profile.look, project.profile.heroLine, project.profile.audience]
                         .filter(Boolean)
-                        .join(" · ") || "—"
+                        .join(" · ") || "-"
                     }
                   />
                 </dl>

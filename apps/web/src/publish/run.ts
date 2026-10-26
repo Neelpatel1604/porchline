@@ -19,7 +19,7 @@ export type PublishResult = {
 };
 
 function siteDir(projectId: string): string {
-  // Netlify / serverless filesystems are read-only except tmp — never write into the deploy bundle.
+  // Netlify / serverless filesystems are read-only except tmp - never write into the deploy bundle.
   const onNetlify = Boolean(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME);
   const root = onNetlify ? path.join(os.tmpdir(), "porchline-sites") : path.join(repoRoot(), "data", "sites");
   return path.join(root, projectId);
@@ -33,7 +33,7 @@ function writeBundle(projectId: string, html: string, css: string, js?: string):
     fs.writeFileSync(path.join(dir, "styles.css"), css, "utf8");
     if (js?.trim()) fs.writeFileSync(path.join(dir, "script.js"), js, "utf8");
   } catch (error) {
-    // Local cache only — Netlify deploy uses the in-memory bundle either way.
+    // Local cache only - Netlify deploy uses the in-memory bundle either way.
     console.warn("site bundle cache skipped:", error);
   }
 }

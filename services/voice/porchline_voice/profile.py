@@ -210,7 +210,7 @@ def normalize_phone(value: Any) -> str:
         return "+1" + digits
     if len(digits) == 11 and digits.startswith("1"):
         return "+" + digits
-    # Reject short fragments — they are usually STT cuts, not real phones.
+    # Reject short fragments - they are usually STT cuts, not real phones.
     return ""
 
 

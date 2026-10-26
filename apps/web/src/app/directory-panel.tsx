@@ -69,7 +69,7 @@ type EditForm = {
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
 function formatWhen(value?: string | null): string {
-  if (!value) return "—";
+  if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString(undefined, {
@@ -83,13 +83,13 @@ function formatWhen(value?: string | null): string {
 
 function formatHours(profile?: Profile): string {
   const hours = profile?.hours;
-  if (!hours) return "—";
+  if (!hours) return "-";
   const parts = DAYS.filter((day) => hours[day]).map((day) => {
     const value = hours[day];
     const label = value?.closed || !value?.open ? "Closed" : `${value.open}–${value.close}`;
     return `${day.slice(0, 3)} ${label}`;
   });
-  return parts.length ? parts.join(" · ") : "—";
+  return parts.length ? parts.join(" · ") : "-";
 }
 
 function emptyForm(profile?: Profile | null): EditForm {
@@ -375,7 +375,7 @@ export function DirectoryView({ voiceBaseUrl }: { voiceBaseUrl: string }) {
                         ? `About every ${detail.avgDaysBetweenCalls} day${detail.avgDaysBetweenCalls === 1 ? "" : "s"}`
                         : "Only one call so far"}
                     </p>
-                    <p className="text-xs pl-subtle">Status · {detail.status || "—"}</p>
+                    <p className="text-xs pl-subtle">Status · {detail.status || "-"}</p>
                   </div>
                 </div>
 
@@ -443,11 +443,11 @@ export function DirectoryView({ voiceBaseUrl }: { voiceBaseUrl: string }) {
                 ) : (
                   <div className="grid gap-6 md:grid-cols-2">
                     <dl>
-                      <DetailRow label="Email" value={detail.email || "—"} />
-                      <DetailRow label="Category" value={detail.category || "—"} />
-                      <DetailRow label="Address" value={detail.profile?.address || "—"} />
-                      <DetailRow label="Service area" value={detail.profile?.serviceArea || "—"} />
-                      <DetailRow label="Summary" value={detail.profile?.summary || "—"} />
+                      <DetailRow label="Email" value={detail.email || "-"} />
+                      <DetailRow label="Category" value={detail.category || "-"} />
+                      <DetailRow label="Address" value={detail.profile?.address || "-"} />
+                      <DetailRow label="Service area" value={detail.profile?.serviceArea || "-"} />
+                      <DetailRow label="Summary" value={detail.profile?.summary || "-"} />
                     </dl>
                     <dl>
                       <DetailRow label="Hours" value={formatHours(detail.profile)} />
@@ -460,7 +460,7 @@ export function DirectoryView({ voiceBaseUrl }: { voiceBaseUrl: string }) {
                                   service.priceLabel ? `${service.name} (${service.priceLabel})` : service.name,
                                 )
                                 .join(", ")
-                            : "—"
+                            : "-"
                         }
                       />
                       <DetailRow
@@ -468,10 +468,10 @@ export function DirectoryView({ voiceBaseUrl }: { voiceBaseUrl: string }) {
                         value={
                           [detail.profile?.vibe, detail.profile?.look, detail.profile?.heroLine, detail.profile?.audience]
                             .filter(Boolean)
-                            .join(" · ") || "—"
+                            .join(" · ") || "-"
                         }
                       />
-                      <DetailRow label="Site host" value={detail.hostname || "—"} />
+                      <DetailRow label="Site host" value={detail.hostname || "-"} />
                     </dl>
                   </div>
                 )}

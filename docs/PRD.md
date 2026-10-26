@@ -1,4 +1,4 @@
-# Porchline — Product Requirements
+# Porchline - Product Requirements
 
 **Status:** Hackathon PRD, v3  
 **Event:** Boson AI hackathon  
@@ -24,7 +24,7 @@ v1 uses the default Netlify URL only. It does not create custom subdomains or wr
 
 ## 2. Problem
 
-Most local businesses — barbers, restaurants, repair shops, tutors, clinics, food trucks — still do not have a usable site. The blocker is intake:
+Most local businesses - barbers, restaurants, repair shops, tutors, clinics, food trucks - still do not have a usable site. The blocker is intake:
 
 - Owners will not fill a long form.
 - They will answer a phone call while they are at the shop.
@@ -328,7 +328,7 @@ Voice reads:
 - `BOSON_REALTIME_MODEL` = `higgs-realtime`
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
-- `PUBLIC_VOICE_WSS_URL` — the tunnel URL Twilio streams to
+- `PUBLIC_VOICE_WSS_URL` - the tunnel URL Twilio streams to
 - `WEB_BASE_URL` = `http://localhost:3000` in dev
 - `INTERNAL_SHARED_SECRET`
 - `DATABASE_PATH` = `data/porchline.db`
@@ -336,10 +336,10 @@ Voice reads:
 Web reads:
 
 - `VOICE_BASE_URL` = `http://localhost:8000` in dev
-- `INTERNAL_SHARED_SECRET` — same value as voice
+- `INTERNAL_SHARED_SECRET` - same value as voice
 - `NETLIFY_AUTH_TOKEN`
-- `GEMINI_API_KEY` — Gemini site builder after spoken yes. Optional; template fallback if empty
-- `SITE_BUILDER_MODEL` — optional, default `gemini-4-argon`
+- `GEMINI_API_KEY` - Gemini site builder after spoken yes. Optional; template fallback if empty
+- `SITE_BUILDER_MODEL` - optional, default `gemini-4-argon`
 
 Web publish needs the Netlify token. The voice service does not read Netlify or Gemini keys.
 
@@ -384,7 +384,7 @@ Build in vertical slices. Each phase has a demo that does not need the later pha
 
 Work happens on `main`. One phase, one commit, when that phase’s check passes.
 
-### Phase 0 — Boots
+### Phase 0 - Boots
 
 Create the two app folders, `.env.example`, and gitignore entries for `.env`, `data/`, and `apps/web/.next`.
 
@@ -394,7 +394,7 @@ Done when:
 - `next dev` serves the dashboard shell on port 3000.
 - The dashboard shell fetches `GET /projects/current` and renders an empty state when voice says there is no project.
 
-### Phase 1 — Profile and page, no network hosts
+### Phase 1 - Profile and page, no network hosts
 
 Implement the JSON schema, the Zod and Pydantic models, and `render.ts`. Add a dev route `GET /preview/fixture` that renders `fixtures/rose-barber.json` as HTML.
 
@@ -404,7 +404,7 @@ Done when:
 - An incomplete fixture (delete `hours`) fails validation and does not render.
 - `publish_profile`’s validation function, called in a unit test, rejects a profile that is missing a required field or has `confirmed: false`.
 
-### Phase 2 — Netlify, still no phone
+### Phase 2 - Netlify, still no phone
 
 `POST /internal/publish` accepts the fixture, writes `data/sites/<id>/`, and deploys to Netlify. The dashboard gets a temporary “Deploy fixture” button so we can test this without a call. That button is removed in phase 5.
 
@@ -413,7 +413,7 @@ Done when:
 - The fixture is live on a `*.netlify.app` URL.
 - A second deploy of the same `projectId` reuses the same Netlify site.
 
-### Phase 3 — Higgs without Twilio
+### Phase 3 - Higgs without Twilio
 
 Add a local Pipecat WebSocket endpoint `WS /dev/stream` that takes PCM or μ-law from a small browser mic page at `/dev/call`. This page is for us, not for the shop owner. Tools write SQLite. SSE updates the dashboard.
 
@@ -425,7 +425,7 @@ Done when:
 - A second local session with the same dev caller id continues that draft.
 - `publish_profile` during this call does not deploy yet. It only sets `confirmed` and logs that phase 5 will publish. This keeps the voice work unblocked by Netlify.
 
-### Phase 4 — Twilio
+### Phase 4 - Twilio
 
 Point a Twilio number at the tunnel. Replace the dev mic as the demo path. Keep `/dev/call` for days when the tunnel is down.
 
@@ -436,7 +436,7 @@ Done when:
 - Caller ID maps to the same project on a second call.
 - Invalid Twilio signatures are rejected.
 
-### Phase 5 — Confirm publishes
+### Phase 5 - Confirm publishes
 
 Remove the fixture button from the dashboard. On `publish_profile`, voice calls `POST /internal/publish`, waits for the result, then speaks the preview host. Failures are spoken as “I saved your site details, and the publish step needs another try,” and the dashboard shows the host error.
 
@@ -446,7 +446,7 @@ Done when:
 - A “not yet” leaves `confirmed` false and creates no deploy.
 - Redeploying after an hours change keeps the same Netlify site.
 
-### Phase 6 — Dashboard is the operator view
+### Phase 6 - Dashboard is the operator view
 
 SSE is the only live channel. The empty state, in-call state, deploying state, and deployed state are all visible. `/dev/call` stays in the repo but is not linked from the main screen.
 
@@ -454,7 +454,7 @@ Done when:
 
 - Refreshing the dashboard mid-call reconnects the stream and shows the current profile.
 - Higgs close codes from FR-9 appear as the strings in that requirement.
-### Phase 7 — Rehearsal
+### Phase 7 - Rehearsal
 
 Run the demo script in section 16 twice. The first run uses `/dev/call` if the tunnel is unnecessary. The second run is a real cell call through Twilio. The first run’s Netlify preview should already load on stage.
 
@@ -467,7 +467,7 @@ Done when the success criteria in section 17 all pass on that second run.
 From the repo root, two terminals:
 
 ```powershell
-# Terminal A — voice
+# Terminal A - voice
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e .\services\voice
@@ -475,7 +475,7 @@ uvicorn porchline_voice.main:app --reload --port 8000 --app-dir services\voice
 ```
 
 ```powershell
-# Terminal B — web
+# Terminal B - web
 cd apps\web
 npm install
 npm run dev

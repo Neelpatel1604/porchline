@@ -4,7 +4,7 @@ One phone call with a local business owner. A live website on a Netlify link.
 
 Porchline is a Boson AI hackathon product. [Higgs Realtime](https://docs.boson.ai/models/higgs-realtime/overview) interviews the owner and tools save a structured business profile. Gemini then designs a one-page site from that profile, and the app deploys it to Netlify.
 
-The build spec — stack, repo layout, and development phases — is in [docs/PRD.md](docs/PRD.md).
+The build spec - stack, repo layout, and development phases - is in [docs/PRD.md](docs/PRD.md).
 
 The voice service is Python (FastAPI, Pipecat, Higgs Realtime). The operator app is Next.js. Twilio carries the call. Netlify hosts the page on its default generated URL.
 

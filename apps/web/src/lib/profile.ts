@@ -52,7 +52,7 @@ export const DAY_NAMES = [
 
 export function ensurePublishDefaults(profile: Profile): Profile {
   const next = { ...profile };
-  // Do not invent a brand name or marketing summary — voice must supply a real businessName.
+  // Do not invent a brand name or marketing summary - voice must supply a real businessName.
   if (!next.category) next.category = "other";
   if (!next.summary.trim() && next.businessName.trim()) {
     next.summary = `${next.businessName.trim()}.`;

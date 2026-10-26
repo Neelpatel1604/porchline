@@ -132,7 +132,7 @@ export default function DevCallPage() {
                 Start mic, wait for the greeting, then speak as the business owner.
               </div>
               <div className="pl-panel-inner rounded-2xl px-4 py-3">
-                Hang up here when done — Live clears once the socket ends.
+                Hang up here when done - Live clears once the socket ends.
               </div>
             </div>
           </article>

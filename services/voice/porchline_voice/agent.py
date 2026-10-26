@@ -103,7 +103,7 @@ def _instructions(caller: str | None, profile: dict[str, Any] | None = None) -> 
     if profile_has_facts(profile):
         known = compact_profile_for_prompt(profile or {})
         parts.append("\n\n" + RESUME_INSTRUCTIONS)
-        parts.append("\n\nKNOWN PROFILE (from our database — ground truth):\n" + json.dumps(known, ensure_ascii=True))
+        parts.append("\n\nKNOWN PROFILE (from our database - ground truth):\n" + json.dumps(known, ensure_ascii=True))
     else:
         parts.append(
             "\n\nThis is a first interview for this number. Do not assume earlier call history. "
@@ -148,7 +148,7 @@ async def _run_pipeline(
             sms_bit = (
                 "A text with the link was sent."
                 if sms.get("ok")
-                else "The text failed — speak the preview link clearly."
+                else "The text failed - speak the preview link clearly."
             )
             content = (
                 "[Porchline system] The website publish just finished successfully. "
@@ -263,7 +263,7 @@ async def _run_pipeline(
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(_transport, _client):
-        # Do not wait for a blocked publish tool — clear Live as soon as the socket drops.
+        # Do not wait for a blocked publish tool - clear Live as soon as the socket drops.
         mark_ended()
 
     runner = WorkerRunner()

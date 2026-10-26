@@ -23,7 +23,7 @@ export async function POST() {
     );
   }
 
-  // Publish runs on the voice host (EC2) — Gemini needs longer than Netlify functions allow.
+  // Publish runs on the voice host (EC2) - Gemini needs longer than Netlify functions allow.
   const response = await fetch(`${voiceBase}/internal/publish`, {
     method: "POST",
     headers: {

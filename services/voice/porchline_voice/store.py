@@ -100,7 +100,7 @@ class Store:
         return self._row(row) if row else None
 
     def find_latest_by_caller(self, caller_id: str) -> dict[str, Any] | None:
-        """Most recent project for this phone — used to resume a saved profile on the next call."""
+        """Most recent project for this phone - used to resume a saved profile on the next call."""
         row = self._conn.execute(
             """
             SELECT * FROM projects

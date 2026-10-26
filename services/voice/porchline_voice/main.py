@@ -213,7 +213,7 @@ async def internal_publish(request: Request) -> dict:
 
 @app.post("/twilio/connect-ended")
 async def twilio_connect_ended(request: Request) -> Response:
-    """Twilio Connect action — fires when the media stream ends (caller hung up)."""
+    """Twilio Connect action - fires when the media stream ends (caller hung up)."""
     form = await request.form()
     params = {key: str(value) for key, value in form.items()}
     if not signature_is_valid(request, params):
