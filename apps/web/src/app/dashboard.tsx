@@ -77,7 +77,7 @@ function formatHours(project: Project): string {
 
 function roleLabel(role: string): string {
   const value = role.toLowerCase();
-  if (value === "owner" || value === "user") return "Owner (approx.)";
+  if (value === "owner" || value === "user") return "Owner";
   if (value === "agent" || value === "assistant") return "Agent";
   if (value === "save" || value === "system") return "Saved to DB";
   return role;
@@ -332,7 +332,7 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
               <p className="text-sm text-white/50">
                 {showCallData
                   ? followLatest
-                    ? "Owner lines are approximate STT — green Saved lines are what went into the DB"
+                    ? "Following the latest line — green Saved lines are what went into the DB"
                     : "Scroll follow paused — jump to bottom to resume"
                   : "Appears when a call is in progress"}
               </p>
