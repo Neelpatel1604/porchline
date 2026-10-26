@@ -4,17 +4,19 @@
 
 :root {
   color-scheme: dark;
+  --font-display: "Syne", Georgia, serif;
+  --font-body: "Source Sans 3", "Segoe UI", sans-serif;
 }
 
 body {
   margin: 0;
-  font-family: var(--font-body), "Segoe UI", sans-serif;
+  font-family: var(--font-body);
   background: #0b0d12;
   color: #f4f1ea;
 }
 
 .font-display {
-  font-family: var(--font-display), Georgia, serif;
+  font-family: var(--font-display);
 }
 
 .stage-shell {

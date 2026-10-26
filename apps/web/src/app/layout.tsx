@@ -1,19 +1,6 @@
 import type { Metadata } from "next";
-import { Source_Sans_3, Syne } from "next/font/google";
 
 import "./globals.css";
-
-const display = Syne({
-  subsets: ["latin"],
-  variable: "--font-display",
-  weight: ["500", "600", "700", "800"],
-});
-
-const body = Source_Sans_3({
-  subsets: ["latin"],
-  variable: "--font-body",
-  weight: ["400", "500", "600", "700"],
-});
 
 export const metadata: Metadata = {
   title: "Porchline",
@@ -23,7 +10,16 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${display.variable} ${body.variable} min-h-screen font-sans antialiased`}>{children}</body>
+      <head>
+        {/* Load fonts at runtime — avoids next/font Google build flakes on Netlify */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&family=Syne:wght@500;600;700;800&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="min-h-screen font-sans antialiased">{children}</body>
     </html>
   );
 }
