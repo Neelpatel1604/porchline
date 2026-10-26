@@ -77,14 +77,20 @@ function formatHours(project: Project): string {
 
 function roleLabel(role: string): string {
   const value = role.toLowerCase();
-  if (value === "owner" || value === "user") return "Owner";
+  if (value === "owner" || value === "user") return "Owner (approx.)";
   if (value === "agent" || value === "assistant") return "Agent";
+  if (value === "save" || value === "system") return "Saved to DB";
   return role;
 }
 
 function isOwner(role: string): boolean {
   const value = role.toLowerCase();
   return value === "owner" || value === "user";
+}
+
+function isSaveNote(role: string): boolean {
+  const value = role.toLowerCase();
+  return value === "save" || value === "system";
 }
 
 function formatWhen(value?: string | null): string {
@@ -113,6 +119,7 @@ function TranscriptBubbles({ lines, follow }: { lines: TranscriptLine[]; follow?
     <>
       {lines.map((line, index) => {
         const owner = isOwner(line.role);
+        const saved = isSaveNote(line.role);
         return (
           <div
             key={`${line.at}-${index}`}
@@ -120,12 +127,16 @@ function TranscriptBubbles({ lines, follow }: { lines: TranscriptLine[]; follow?
           >
             <div
               className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                owner ? "bg-amber-400 text-[#1a1208]" : "bg-white/8 text-white ring-1 ring-white/10"
+                saved
+                  ? "bg-emerald-500/15 text-emerald-50 ring-1 ring-emerald-300/30"
+                  : owner
+                    ? "bg-amber-400 text-[#1a1208]"
+                    : "bg-white/8 text-white ring-1 ring-white/10"
               }`}
             >
               <p
                 className={`text-[0.68rem] font-semibold uppercase tracking-[0.14em] ${
-                  owner ? "text-[#5c3b10]" : "text-amber-200/80"
+                  saved ? "text-emerald-200/90" : owner ? "text-[#5c3b10]" : "text-amber-200/80"
                 }`}
               >
                 {roleLabel(line.role)}
@@ -321,7 +332,7 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
               <p className="text-sm text-white/50">
                 {showCallData
                   ? followLatest
-                    ? "Following the latest line — scroll up to pause"
+                    ? "Owner lines are approximate STT — green Saved lines are what went into the DB"
                     : "Scroll follow paused — jump to bottom to resume"
                   : "Appears when a call is in progress"}
               </p>

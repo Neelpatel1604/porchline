@@ -59,6 +59,27 @@ class ToolKit:
         self.hub.publish(self.project_id, {"type": "profile", "project": project})
         return project
 
+    def _note_save(self, saved: list[str], profile: dict[str, Any]) -> None:
+        """Append a ground-truth line so the dashboard shows what landed in the DB, not only STT."""
+        if not saved:
+            return
+        parts: list[str] = []
+        for key in saved:
+            value = profile.get(key)
+            if key == "services" and isinstance(value, list) and value:
+                last = value[-1]
+                label = last.get("name", "")
+                price = last.get("priceLabel")
+                parts.append(f"service={label}" + (f" ({price})" if price else ""))
+            elif key == "hours" and isinstance(value, dict):
+                parts.append(f"hours updated ({len(value)} days)")
+            elif value is not None and value != "":
+                parts.append(f"{key}={value}")
+            else:
+                parts.append(key)
+        project = self.store.append_transcript(self.project_id, "save", "Saved: " + "; ".join(parts))
+        self.hub.publish(self.project_id, {"type": "transcript", "project": project})
+
     async def save_business_basics(
         self,
         params: FunctionCallParams,
@@ -90,6 +111,7 @@ class ToolKit:
             return
         profile["confirmed"] = False
         self._write(profile)
+        self._note_save(saved, profile)
         await params.result_callback({"ok": True, "saved": saved, "category": profile.get("category")})
 
     async def save_contact(
@@ -130,6 +152,7 @@ class ToolKit:
         if saved:
             profile["confirmed"] = False
             self._write(profile)
+            self._note_save(saved, profile)
         if phone_error:
             await params.result_callback({"ok": False, "message": phone_error, "saved": saved})
             return
@@ -184,6 +207,7 @@ class ToolKit:
         profile["hours"] = hours
         profile["confirmed"] = False
         self._write(profile)
+        self._note_save(["hours"], profile)
         await params.result_callback({"ok": True, "hours": hours})
 
     async def add_service(
@@ -215,6 +239,7 @@ class ToolKit:
         profile["services"] = services
         profile["confirmed"] = False
         self._write(profile)
+        self._note_save(["services"], profile)
         await params.result_callback({"ok": True, "count": len(services)})
 
     async def save_site_style(
@@ -257,6 +282,7 @@ class ToolKit:
             return
         profile["confirmed"] = False
         self._write(profile)
+        self._note_save(saved, profile)
         await params.result_callback({"ok": True, "saved": saved})
 
     async def read_profile(self, params: FunctionCallParams) -> None:
