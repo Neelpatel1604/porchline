@@ -265,8 +265,19 @@ class ToolKit:
         await params.result_callback({"ok": True, "profile": profile, "missing": missing_for_publish(profile)})
 
     async def publish_profile(self, params: FunctionCallParams) -> None:
-        """Publish after the owner clearly agrees. Any collected fields are enough."""
-        profile = prepare_for_publish(self._profile())
+        """Publish after the owner clearly agrees. Requires a saved business name."""
+        current = self._profile()
+        missing = missing_for_publish(current)
+        if missing:
+            await params.result_callback(
+                {
+                    "ok": False,
+                    "missing": missing,
+                    "message": "Ask for the business name, save it after they confirm, then publish again.",
+                }
+            )
+            return
+        profile = prepare_for_publish(current)
         profile["confirmed"] = True
         project = self._write(profile, status="designing")
         self.hub.publish(self.project_id, {"type": "status", "project": project})
@@ -284,9 +295,9 @@ class ToolKit:
             return
         saved = self.store.save_deploy(self.project_id, result)
         self.hub.publish(self.project_id, {"type": "status", "project": saved})
-        caller = str(saved.get("callerId") or "")
+        sms_to = str(profile.get("phone") or "").strip() or str(saved.get("callerId") or "")
         sms = send_site_sms(
-            to_number=caller,
+            to_number=sms_to,
             preview_url=str(result.get("previewUrl") or ""),
             business_name=str(profile.get("businessName") or ""),
         )
@@ -297,9 +308,10 @@ class ToolKit:
                 "hostname": result.get("hostname"),
                 "sms": sms,
                 "message": (
-                    "Site published. Text message sent with the link."
+                    "Site published. Text message sent with the link. "
                     if sms.get("ok")
-                    else f"Site published. Text failed: {sms.get('message')}. Speak the preview link."
-                ),
+                    else f"Site published. Text failed: {sms.get('message')}. Speak the preview link. "
+                )
+                + "Say a short goodbye when done.",
             }
         )

@@ -77,6 +77,51 @@ def empty_profile(source_call_id: str) -> dict[str, Any]:
     }
 
 
+def profile_has_facts(profile: dict[str, Any] | None) -> bool:
+    if not profile:
+        return False
+    if str(profile.get("businessName") or "").strip():
+        return True
+    if str(profile.get("phone") or "").strip():
+        return True
+    if str(profile.get("summary") or "").strip():
+        return True
+    if isinstance(profile.get("services"), list) and profile["services"]:
+        return True
+    if isinstance(profile.get("hours"), dict) and profile["hours"]:
+        return True
+    return False
+
+
+def seed_profile_from_prior(prior: dict[str, Any], source_call_id: str) -> dict[str, Any]:
+    """Copy durable facts into a new call. Fresh transcript; not confirmed until they say so again."""
+    seeded = empty_profile(source_call_id)
+    prior_profile = prior.get("profile") if "profile" in prior else prior
+    if not isinstance(prior_profile, dict):
+        return seeded
+    for key in seeded:
+        if key in {"confirmed", "sourceCallId"}:
+            continue
+        if key in prior_profile:
+            seeded[key] = prior_profile[key]
+    seeded["confirmed"] = False
+    seeded["sourceCallId"] = source_call_id
+    return seeded
+
+
+def compact_profile_for_prompt(profile: dict[str, Any]) -> dict[str, Any]:
+    """Drop empty fields so the realtime instructions stay short."""
+    compact: dict[str, Any] = {}
+    for key, value in profile.items():
+        if key in {"confirmed", "sourceCallId"}:
+            continue
+        if value is None or value == "" or value == [] or value == {}:
+            continue
+        compact[key] = value
+    return compact
+
+
+
 _DIGIT_WORDS = {
     "zero": "0",
     "oh": "0",
@@ -165,8 +210,7 @@ def normalize_phone(value: Any) -> str:
         return "+1" + digits
     if len(digits) == 11 and digits.startswith("1"):
         return "+" + digits
-    if len(digits) >= 3:
-        return "+" + digits
+    # Reject short fragments — they are usually STT cuts, not real phones.
     return ""
 
 
@@ -178,19 +222,21 @@ def normalize_label(value: str) -> str:
 
 
 def missing_for_publish(profile: dict[str, Any]) -> list[str]:
-    """Nothing is required to publish. The agent may collect whatever the owner offers."""
-    _ = profile
-    return []
+    """Require a real business name before publish so we never invent one."""
+    missing: list[str] = []
+    if not str(profile.get("businessName") or "").strip():
+        missing.append("businessName")
+    return missing
 
 
 def prepare_for_publish(profile: dict[str, Any]) -> dict[str, Any]:
     prepared = dict(profile)
-    if not str(prepared.get("businessName") or "").strip():
-        prepared["businessName"] = "Local business"
+    # Do not invent a brand name or marketing summary. Missing name is blocked upstream.
     if prepared.get("category") not in CATEGORIES:
         prepared["category"] = "other"
     if not str(prepared.get("summary") or "").strip():
-        prepared["summary"] = "A local business page built with Porchline."
+        name = str(prepared.get("businessName") or "").strip()
+        prepared["summary"] = f"{name}." if name else ""
     # Accept old drafts that still carry subdomainLabel.
     if not str(prepared.get("siteSlug") or "").strip() and prepared.get("subdomainLabel"):
         prepared["siteSlug"] = prepared.get("subdomainLabel")

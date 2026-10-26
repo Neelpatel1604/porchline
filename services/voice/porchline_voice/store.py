@@ -99,17 +99,36 @@ class Store:
         ).fetchone()
         return self._row(row) if row else None
 
-    def create(self, caller_id: str, source_call_id: str, profile: dict[str, Any]) -> dict[str, Any]:
+    def find_latest_by_caller(self, caller_id: str) -> dict[str, Any] | None:
+        """Most recent project for this phone — used to resume a saved profile on the next call."""
+        row = self._conn.execute(
+            """
+            SELECT * FROM projects
+            WHERE caller_id = ?
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (caller_id,),
+        ).fetchone()
+        return self._row(row) if row else None
+
+    def create(
+        self,
+        caller_id: str,
+        source_call_id: str,
+        profile: dict[str, Any],
+        netlify_site_id: str | None = None,
+    ) -> dict[str, Any]:
         project_id = str(uuid.uuid4())
         now = _now()
         self._conn.execute(
             """
             INSERT INTO projects (
               id, caller_id, status, profile_json, transcript_json,
-              call_started_at, created_at, updated_at
-            ) VALUES (?, ?, 'draft', ?, '[]', ?, ?, ?)
+              netlify_site_id, call_started_at, created_at, updated_at
+            ) VALUES (?, ?, 'draft', ?, '[]', ?, ?, ?, ?)
             """,
-            (project_id, caller_id, json.dumps(profile), now, now, now),
+            (project_id, caller_id, json.dumps(profile), netlify_site_id, now, now, now),
         )
         self._conn.commit()
         created = self.get(project_id)

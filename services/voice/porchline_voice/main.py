@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 
 from porchline_voice.events import EventHub
-from porchline_voice.profile import empty_profile
+from porchline_voice.profile import empty_profile, profile_has_facts, seed_profile_from_prior
 from porchline_voice.store import Store
 from porchline_voice.twilio_http import connect_twiml, signature_is_valid
 
@@ -138,8 +138,18 @@ async def twilio_voice(request: Request) -> Response:
         raise HTTPException(status_code=403, detail="invalid twilio signature")
     caller = params.get("From") or "unknown"
     call_sid = params.get("CallSid") or "call"
-    # Every inbound call starts fresh — no resume of prior profile or transcript.
-    project = store.create(caller, call_sid, empty_profile(call_sid))
+    # New call row + empty transcript, but seed profile from this caller's latest DB save.
+    prior = store.find_latest_by_caller(caller) if caller not in {"unknown", ""} else None
+    if prior is not None and profile_has_facts(prior.get("profile")):
+        profile = seed_profile_from_prior(prior, call_sid)
+        project = store.create(
+            caller,
+            call_sid,
+            profile,
+            netlify_site_id=prior.get("netlifySiteId"),
+        )
+    else:
+        project = store.create(caller, call_sid, empty_profile(call_sid))
     if project is None:
         raise HTTPException(status_code=500, detail="project was not stored")
     hub.publish(project["id"], {"type": "status", "project": project})

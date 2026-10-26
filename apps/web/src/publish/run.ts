@@ -55,6 +55,13 @@ export async function publishProfile(input: {
       message: parsed.error.issues.map((issue) => issue.path.join(".") || issue.message).join(", "),
     };
   }
+  if (!String(parsed.data.businessName || "").trim()) {
+    return {
+      status: "error",
+      projectId: input.projectId,
+      message: "businessName is required before publish",
+    };
+  }
   const profile: Profile = ensurePublishDefaults(parsed.data);
   const missing = missingEnv(["NETLIFY_AUTH_TOKEN"]);
   if (missing) {

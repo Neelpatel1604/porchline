@@ -24,7 +24,7 @@ function telHref(phone: string): string {
 }
 
 export function renderSite(profile: Profile): { html: string; css: string } {
-  const name = escapeHtml(profile.businessName || "Local business");
+  const name = escapeHtml(profile.businessName.trim() || "Business");
   const categoryKey = profile.category || "other";
   const categoryLabel = escapeHtml(categoryKey.replaceAll("_", " "));
   const summary = profile.summary ? escapeHtml(profile.summary) : "";

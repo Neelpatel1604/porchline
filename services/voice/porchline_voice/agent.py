@@ -30,8 +30,13 @@ from pipecat.workers.runner import WorkerRunner
 from pipecat_boson.realtime import BosonRealtimeLLMService
 
 from porchline_voice.events import EventHub
-from porchline_voice.instructions import INSTRUCTIONS
-from porchline_voice.profile import empty_profile
+from porchline_voice.instructions import INSTRUCTIONS, RESUME_INSTRUCTIONS
+from porchline_voice.profile import (
+    compact_profile_for_prompt,
+    empty_profile,
+    profile_has_facts,
+    seed_profile_from_prior,
+)
 from porchline_voice.store import Store
 from porchline_voice.tools import ToolKit
 
@@ -83,15 +88,23 @@ def _boson_message(event_type: Any, event: Any) -> str | None:
     return None
 
 
-def _instructions(caller: str | None) -> str:
-    if not caller or caller in {"unknown", "dev-mic"}:
-        return INSTRUCTIONS
-    return (
-        INSTRUCTIONS
-        + f"\n\nThe caller is dialing from {caller}. "
-        + "If they say to use this number, or they speak these digits, save it with save_contact immediately. "
-        + "Do not assume any earlier call history. This interview starts empty."
-    )
+def _instructions(caller: str | None, profile: dict[str, Any] | None = None) -> str:
+    parts = [INSTRUCTIONS]
+    if caller and caller not in {"unknown", "dev-mic"}:
+        parts.append(
+            f"\n\nThe caller is dialing from {caller}. "
+            "If they say to use this number, or they speak these digits, confirm once then save_contact."
+        )
+    if profile_has_facts(profile):
+        known = compact_profile_for_prompt(profile or {})
+        parts.append("\n\n" + RESUME_INSTRUCTIONS)
+        parts.append("\n\nKNOWN PROFILE (from our database — ground truth):\n" + json.dumps(known, ensure_ascii=True))
+    else:
+        parts.append(
+            "\n\nThis is a first interview for this number. Do not assume earlier call history. "
+            "Start empty and only store confirmed facts."
+        )
+    return "".join(parts)
 
 
 async def _run_pipeline(
@@ -101,6 +114,7 @@ async def _run_pipeline(
     store: Store,
     hub: EventHub,
     caller: str | None = None,
+    profile: dict[str, Any] | None = None,
 ) -> None:
     api_key = os.environ.get("BOSON_API_KEY", "").strip()
     if not api_key:
@@ -115,16 +129,16 @@ async def _run_pipeline(
         api_key=api_key,
         model=os.environ.get("BOSON_REALTIME_MODEL", "higgs-realtime"),
         voice="default",
-        instructions=_instructions(caller),
+        instructions=_instructions(caller, profile),
         tools=tools,
         turn_detection={
             "type": "server_vad",
             "create_response": True,
             "interrupt_response": True,
-            "prefix_padding_ms": 300,
-            # Longer silence before the model speaks again — cuts rapid repeat loops.
-            "silence_duration_ms": 1400,
-            "threshold": 0.65,
+            "prefix_padding_ms": 400,
+            # Longer silence helps finish names, emails, and digit runs on phone audio.
+            "silence_duration_ms": 1800,
+            "threshold": 0.55,
         },
         input_audio_transcription={"model": "higgs-stt-3.1", "language": "en"},
         input_audio_noise_reduction="near_field",
@@ -188,11 +202,25 @@ async def _run_pipeline(
 
 
 async def run_dev_call(websocket: WebSocket, store: Store, hub: EventHub, caller: str) -> None:
-    project = store.create(caller, f"dev-{caller}", empty_profile(f"dev-{caller}"))
+    prior = store.find_latest_by_caller(caller)
+    if prior is not None and profile_has_facts(prior.get("profile")):
+        profile = seed_profile_from_prior(prior, f"dev-{caller}")
+        project = store.create(caller, f"dev-{caller}", profile, netlify_site_id=prior.get("netlifySiteId"))
+    else:
+        profile = empty_profile(f"dev-{caller}")
+        project = store.create(caller, f"dev-{caller}", profile)
     hub.publish(project["id"], {"type": "status", "project": project})
     await websocket.send_text(json.dumps({"type": "ready", "projectId": project["id"]}))
     try:
-        await _run_pipeline(websocket, Pcm24kSerializer(), project["id"], store, hub, caller)
+        await _run_pipeline(
+            websocket,
+            Pcm24kSerializer(),
+            project["id"],
+            store,
+            hub,
+            caller,
+            profile=project.get("profile"),
+        )
     finally:
         ended = store.mark_call_ended(project["id"])
         if ended is not None:
@@ -223,7 +251,15 @@ async def run_twilio_call(websocket: WebSocket, store: Store, hub: EventHub) -> 
         params=TwilioFrameSerializer.InputParams(sample_rate=SAMPLE_RATE),
     )
     try:
-        await _run_pipeline(websocket, serializer, project["id"], store, hub, project.get("callerId"))
+        await _run_pipeline(
+            websocket,
+            serializer,
+            project["id"],
+            store,
+            hub,
+            project.get("callerId"),
+            profile=project.get("profile"),
+        )
     finally:
         ended = store.mark_call_ended(project["id"])
         if ended is not None:
