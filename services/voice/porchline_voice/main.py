@@ -40,7 +40,7 @@ app = FastAPI(title="Porchline voice")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins(),
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -81,6 +81,75 @@ def get_project(project_id: str) -> dict:
     if project is None:
         raise HTTPException(status_code=404, detail="unknown project")
     return {"project": project}
+
+
+@app.get("/directory")
+def directory() -> dict:
+    return {"contacts": store.list_contacts()}
+
+
+@app.get("/directory/caller/{caller_id}")
+def directory_caller(caller_id: str) -> dict:
+    contact = store.get_contact(caller_id)
+    if contact is None:
+        raise HTTPException(status_code=404, detail="unknown caller")
+    return {"contact": contact}
+
+
+@app.patch("/projects/{project_id}/profile")
+async def patch_project_profile(project_id: str, request: Request) -> dict:
+    project = store.get(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="unknown project")
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="expected JSON object")
+    profile = dict(project.get("profile") or {})
+    allowed = {
+        "businessName",
+        "category",
+        "summary",
+        "phone",
+        "email",
+        "address",
+        "serviceArea",
+        "highlight",
+        "vibe",
+        "look",
+        "heroLine",
+        "audience",
+        "siteSlug",
+        "hours",
+        "services",
+    }
+    changed = False
+    for key, value in body.items():
+        if key not in allowed:
+            continue
+        profile[key] = value
+        changed = True
+    if not changed:
+        raise HTTPException(status_code=400, detail="no updatable fields")
+    profile["confirmed"] = False
+    saved = store.save_profile(project_id, profile)
+    hub.publish(project_id, {"type": "profile", "project": saved})
+    return {"ok": True, "project": saved}
+
+
+@app.delete("/projects/{project_id}")
+def delete_project(project_id: str) -> dict:
+    if store.get(project_id) is None:
+        raise HTTPException(status_code=404, detail="unknown project")
+    store.delete_project(project_id)
+    return {"ok": True}
+
+
+@app.delete("/directory/caller/{caller_id}")
+def delete_caller(caller_id: str) -> dict:
+    deleted = store.delete_caller(caller_id)
+    if deleted <= 0:
+        raise HTTPException(status_code=404, detail="unknown caller")
+    return {"ok": True, "deleted": deleted}
 
 
 @app.get("/projects/{project_id}/stream")

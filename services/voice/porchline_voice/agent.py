@@ -96,10 +96,9 @@ def _instructions(caller: str | None, profile: dict[str, Any] | None = None) -> 
     if caller and caller not in {"unknown", "dev-mic"}:
         parts.append(
             f"\n\nThe caller is dialing from {caller}. "
-            "When you need a site phone number, ask first: "
-            f"“Do you want me to use this phone number — {caller}?” "
-            "If yes, confirm once then save_contact with that exact number. "
-            "If no, ask them to say the digits, confirm, then save."
+            "Ask for the public site phone in normal conversation. "
+            "Do not offer or ask to use this caller ID. "
+            "Only save_contact with this number if they clearly say to use the number they are calling from."
         )
     if profile_has_facts(profile):
         known = compact_profile_for_prompt(profile or {})

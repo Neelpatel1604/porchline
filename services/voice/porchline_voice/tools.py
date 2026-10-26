@@ -63,6 +63,7 @@ class ToolKit:
             self.save_hours,
             self.add_service,
             self.save_site_style,
+            self.clear_field,
             self.read_profile,
             self.publish_profile,
             self.check_publish_status,
@@ -146,7 +147,7 @@ class ToolKit:
         """Save the public phone and optional email, address, or service area into the database. Never invent an email or address.
 
         Args:
-            phone: Public phone number, or the caller ID digits when they agreed to use this phone number. Spoken digits such as "three six five" are valid. Empty leaves the stored phone unchanged.
+            phone: Public phone number they gave. Spoken digits such as "three six five" are valid. Empty leaves the stored phone unchanged.
             email: Exact email they spelled or said, or empty to leave it unchanged. Do not invent domains.
             address: Public street address they gave, or empty to leave it unchanged.
             serviceArea: Neighborhood or city they named, or empty to leave it unchanged.
@@ -305,6 +306,87 @@ class ToolKit:
         self._write(profile)
         self._note_save(saved, profile)
         await params.result_callback({"ok": True, "saved": saved})
+
+    async def clear_field(
+        self,
+        params: FunctionCallParams,
+        field: str,
+        serviceName: str = "",
+        day: str = "",
+    ) -> None:
+        """Remove a saved value from the database after the owner asks to delete or clear it.
+
+        Args:
+            field: Profile field to clear. One of: businessName, category, summary, phone, email, address, serviceArea, hours, services, highlight, vibe, look, heroLine, audience.
+            serviceName: When field is services, the service name to remove. Empty clears all services.
+            day: When field is hours, the weekday to clear (monday…sunday). Empty clears all hours.
+        """
+        key = field.strip()
+        allowed = {
+            "businessName",
+            "category",
+            "summary",
+            "phone",
+            "email",
+            "address",
+            "serviceArea",
+            "hours",
+            "services",
+            "highlight",
+            "vibe",
+            "look",
+            "heroLine",
+            "audience",
+        }
+        if key not in allowed:
+            await params.result_callback(
+                {"ok": False, "message": f"Unknown field '{field}'. Use one of: {', '.join(sorted(allowed))}"}
+            )
+            return
+
+        profile = self._profile()
+        cleared: list[str] = []
+
+        if key == "services":
+            services = list(profile.get("services") or [])
+            target = serviceName.strip().lower()
+            if target:
+                kept = [item for item in services if str(item.get("name") or "").strip().lower() != target]
+                if len(kept) == len(services):
+                    await params.result_callback({"ok": False, "message": f"No service named '{serviceName}' to clear"})
+                    return
+                profile["services"] = kept
+                cleared.append(f"services:{serviceName.strip()}")
+            else:
+                profile["services"] = []
+                cleared.append("services")
+        elif key == "hours":
+            day_key = day.strip().lower()
+            if day_key:
+                hours = dict(profile.get("hours") or {})
+                if day_key not in hours:
+                    await params.result_callback({"ok": False, "message": f"No hours saved for {day_key}"})
+                    return
+                hours.pop(day_key, None)
+                profile["hours"] = hours
+                cleared.append(f"hours:{day_key}")
+            else:
+                profile["hours"] = {}
+                cleared.append("hours")
+        elif key in {"email", "address", "serviceArea", "highlight", "vibe", "look", "heroLine", "audience"}:
+            profile[key] = None
+            cleared.append(key)
+        else:
+            profile[key] = ""
+            cleared.append(key)
+
+        profile["confirmed"] = False
+        self._write(profile)
+        project = self.store.append_transcript(
+            self.project_id, "save", "Cleared: " + "; ".join(cleared)
+        )
+        self.hub.publish(self.project_id, {"type": "transcript", "project": project})
+        await params.result_callback({"ok": True, "cleared": cleared, "profile": profile})
 
     async def read_profile(self, params: FunctionCallParams) -> None:
         """Return the stored profile so the read-back matches the database."""

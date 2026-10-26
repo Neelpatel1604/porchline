@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { DirectoryPanel } from "./directory-panel";
+
 type TranscriptLine = { role: string; text: string; at: string };
 
 type Project = {
@@ -33,15 +35,6 @@ type Project = {
   callStartedAt?: string | null;
   callEndedAt?: string | null;
   updatedAt?: string | null;
-};
-
-type FixtureResult = {
-  status: string;
-  message?: string;
-  previewUrl?: string;
-  hostname?: string;
-  builderSource?: "gemini" | "template";
-  builderNote?: string;
 };
 
 /** Safety net only — real hangup should set callEndedAt via Twilio connect-ended / disconnect. */
@@ -94,23 +87,11 @@ function isSaveNote(role: string): boolean {
   return value === "save" || value === "system";
 }
 
-function formatWhen(value?: string | null): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="border-b border-white/10 py-3 last:border-0">
       <dt className="text-[0.7rem] uppercase tracking-[0.16em] text-amber-200/70">{label}</dt>
-      <dd className="mt-1 text-base text-white/95">{value}</dd>
+      <dd className="mt-1 text-base pl-text">{value}</dd>
     </div>
   );
 }
@@ -154,13 +135,8 @@ function TranscriptBubbles({ lines, follow }: { lines: TranscriptLine[]; follow?
 export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
-  const [fixture, setFixture] = useState<FixtureResult | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [history, setHistory] = useState<Project[]>([]);
-  const [historySelected, setHistorySelected] = useState<Project | null>(null);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const [directoryOpen, setDirectoryOpen] = useState(false);
   const [followLatest, setFollowLatest] = useState(true);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const transcriptPaneRef = useRef<HTMLDivElement | null>(null);
@@ -238,43 +214,6 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
     setFollowLatest(distance < 72);
   }
 
-  async function openHistory() {
-    setHistoryOpen(true);
-    setHistoryLoading(true);
-    setHistorySelected(null);
-    try {
-      const response = await fetch(`${voiceBaseUrl}/projects`);
-      const body = (await response.json()) as { projects: Project[] };
-      setHistory(body.projects || []);
-    } catch {
-      setHistory([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  }
-
-  async function selectHistory(id: string) {
-    setHistoryLoading(true);
-    try {
-      const response = await fetch(`${voiceBaseUrl}/projects/${id}`);
-      const body = (await response.json()) as { project: Project };
-      setHistorySelected(body.project);
-    } catch {
-      setHistorySelected(null);
-    } finally {
-      setHistoryLoading(false);
-    }
-  }
-
-  async function deployFixture() {
-    setBusy("Designing and publishing the Rose Street Barber fixture…");
-    setFixture(null);
-    const response = await fetch("/api/deploy-fixture", { method: "POST" });
-    const body = (await response.json()) as FixtureResult;
-    setFixture(body);
-    setBusy(null);
-  }
-
   async function cancelPublish() {
     if (!project) return;
     await fetch(`${voiceBaseUrl}/projects/${project.id}/cancel`, { method: "POST" });
@@ -282,8 +221,7 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
 
   const inFlight = project?.status === "designing" || project?.status === "deploying";
   const showCallData = live || inFlight;
-  const preview = fixture?.previewUrl || (showCallData ? project?.previewUrl : null);
-  const hostname = fixture?.hostname || (showCallData ? project?.hostname : null);
+  const preview = showCallData ? project?.previewUrl : null;
   const lines = showCallData ? (project?.transcript ?? []) : [];
   const stageStatus = statusLabel(showCallData ? project : null, live, elapsed);
 
@@ -292,7 +230,7 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
       <header className="mx-auto flex max-w-7xl flex-wrap items-end justify-between gap-6 border-b border-white/10 pb-6">
         <div>
           <p className="font-display text-5xl tracking-tight md:text-6xl">Porchline</p>
-          <p className="mt-2 max-w-xl text-base text-white/65">
+          <p className="mt-2 max-w-xl text-base pl-muted">
             Live operator stage — watch the call, the saved facts, and the site as they land.
           </p>
         </div>
@@ -307,10 +245,10 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
           </div>
           <button
             className="rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 hover:bg-white/5"
-            onClick={() => void openHistory()}
+            onClick={() => setDirectoryOpen(true)}
             type="button"
           >
-            History
+            Directory
           </button>
           <a className="rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 hover:bg-white/5" href="/dev/call">
             Dev mic
@@ -323,14 +261,12 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
           {voiceError}
         </p>
       ) : null}
-      {busy ? <p className="mx-auto mt-5 max-w-7xl text-sm text-amber-200">{busy}</p> : null}
-
       <section className="mx-auto mt-6 grid max-w-7xl gap-5 lg:grid-cols-[1.35fr_0.9fr] lg:items-stretch">
-        <article className="flex h-[min(70vh,40rem)] flex-col overflow-hidden rounded-3xl bg-[#171a22]/90 ring-1 ring-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.35)]">
+        <article className="pl-panel flex h-[min(70vh,40rem)] flex-col overflow-hidden rounded-3xl">
           <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
             <div>
-              <h2 className="font-display text-2xl tracking-tight">Live transcript</h2>
-              <p className="text-sm text-white/50">
+              <h2 className="font-display text-2xl tracking-tight pl-text">Live transcript</h2>
+              <p className="text-sm pl-muted">
                 {showCallData
                   ? followLatest
                     ? "Following the latest line — green Saved lines are what went into the DB"
@@ -362,11 +298,11 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
                 <div ref={transcriptEndRef} />
               </>
             ) : (
-              <div className="flex h-full min-h-[16rem] items-center justify-center text-center text-white/45">
+              <div className="flex h-full min-h-[16rem] items-center justify-center text-center pl-subtle">
                 <p>
                   {live ? "Waiting for speech…" : "Waiting for a call"}
                   <br />
-                  <span className="text-sm">
+                  <span className="text-sm pl-muted">
                     {live
                       ? "Owner and agent lines appear here live."
                       : "The stage stays clear until someone dials in."}
@@ -377,16 +313,16 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
           </div>
         </article>
 
-        <article className="flex h-[min(70vh,40rem)] flex-col overflow-hidden rounded-3xl bg-gradient-to-b from-[#222733] to-[#151820] ring-1 ring-white/10">
+        <article className="pl-panel flex h-[min(70vh,40rem)] flex-col overflow-hidden rounded-3xl">
           <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
             <div>
-              <h2 className="font-display text-2xl tracking-tight">Saved profile</h2>
-              <p className="text-sm text-white/50">
+              <h2 className="font-display text-2xl tracking-tight pl-text">Saved profile</h2>
+              <p className="text-sm pl-muted">
                 {showCallData ? "Facts written by tools this call" : "Fills in during the live call"}
               </p>
             </div>
             {showCallData && project?.callerId ? (
-              <p className="rounded-full bg-white/5 px-3 py-1 text-xs text-white/60">{project.callerId}</p>
+              <p className="rounded-full bg-white/5 px-3 py-1 text-xs pl-subtle">{project.callerId}</p>
             ) : null}
           </div>
 
@@ -419,10 +355,20 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
                 />
               </dl>
             ) : (
-              <p className="mt-8 text-sm text-white/50">Place a call to start filling this card.</p>
+              <p className="mt-8 text-sm pl-muted">Place a call to start filling this card.</p>
             )}
 
             {showCallData && project?.error ? <p className="mt-3 text-sm text-rose-300">{project.error}</p> : null}
+            {preview ? (
+              <a
+                className="mt-4 inline-flex rounded-full bg-amber-400 px-4 py-2 text-sm font-semibold text-[#1a1208] hover:bg-amber-300"
+                href={preview}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open site
+              </a>
+            ) : null}
             {inFlight && project ? (
               <div className="mt-4 space-y-3 rounded-2xl bg-amber-400/10 p-4 ring-1 ring-amber-300/20">
                 <p className="text-sm text-amber-100">
@@ -443,135 +389,11 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
         </article>
       </section>
 
-      <section className="mx-auto mt-5 flex max-w-7xl flex-wrap items-center justify-between gap-4 rounded-3xl bg-white/[0.04] px-5 py-4 ring-1 ring-white/10">
-        <div>
-          <h2 className="font-display text-xl">Published site</h2>
-          <p className="text-sm text-white/50">
-            {preview ? "Open the live Netlify link." : "Publish from a call, or deploy the fixture for a dry run."}
-          </p>
-          {hostname ? <p className="mt-1 text-xs text-white/40">{hostname}</p> : null}
-          {fixture?.builderSource ? (
-            <p className="mt-1 text-xs text-white/40">Builder: {fixture.builderSource}</p>
-          ) : null}
-          {fixture?.message || fixture?.builderNote ? (
-            <p className="mt-2 text-sm text-rose-300">{fixture.message || fixture.builderNote}</p>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {preview ? (
-            <a
-              className="rounded-full bg-amber-400 px-5 py-2.5 text-sm font-semibold text-[#1a1208] hover:bg-amber-300"
-              href={preview}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open live site
-            </a>
-          ) : null}
-          <button
-            className="rounded-full border border-white/20 px-5 py-2.5 text-sm text-white/85 hover:bg-white/5"
-            onClick={deployFixture}
-            type="button"
-          >
-            Deploy fixture
-          </button>
-        </div>
-      </section>
-
-      {historyOpen ? (
-        <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/55 p-3 backdrop-blur-sm md:p-6">
-          <div className="flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-[#12151d] ring-1 ring-white/15 shadow-[0_40px_120px_rgba(0,0,0,0.55)]">
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-              <div>
-                <h2 className="font-display text-3xl tracking-tight">History</h2>
-                <p className="text-sm text-white/50">Past calls, transcripts, and saved profiles</p>
-              </div>
-              <button
-                className="rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 hover:bg-white/5"
-                onClick={() => setHistoryOpen(false)}
-                type="button"
-              >
-                Close
-              </button>
-            </div>
-            <div className="grid min-h-0 flex-1 gap-0 md:grid-cols-[0.9fr_1.2fr]">
-              <div className="panel-scroll overflow-y-auto border-b border-white/10 md:border-b-0 md:border-r">
-                {historyLoading && !history.length ? (
-                  <p className="p-5 text-sm text-white/50">Loading…</p>
-                ) : history.length ? (
-                  <ul className="divide-y divide-white/10">
-                    {history.map((item) => {
-                      const title = item.profile.businessName || item.callerId || "Untitled call";
-                      const active = historySelected?.id === item.id;
-                      return (
-                        <li key={item.id}>
-                          <button
-                            className={`w-full px-5 py-4 text-left hover:bg-white/5 ${active ? "bg-white/8" : ""}`}
-                            onClick={() => void selectHistory(item.id)}
-                            type="button"
-                          >
-                            <p className="font-medium text-white">{title}</p>
-                            <p className="mt-1 text-xs text-white/45">
-                              {formatWhen(item.callStartedAt || item.updatedAt)} · {item.status} ·{" "}
-                              {item.transcript?.length || 0} lines
-                            </p>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <p className="p-5 text-sm text-white/50">No past calls yet.</p>
-                )}
-              </div>
-              <div className="panel-scroll overflow-y-auto p-5">
-                {historySelected ? (
-                  <div className="space-y-6">
-                    <div>
-                      <p className="text-[0.7rem] uppercase tracking-[0.16em] text-amber-200/70">Caller</p>
-                      <p className="mt-1 text-lg">{historySelected.callerId}</p>
-                      <p className="mt-1 text-sm text-white/45">
-                        {formatWhen(historySelected.callStartedAt)} · {historySelected.status}
-                      </p>
-                      {historySelected.previewUrl ? (
-                        <a
-                          className="mt-3 inline-flex rounded-full bg-amber-400 px-4 py-2 text-sm font-semibold text-[#1a1208]"
-                          href={historySelected.previewUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open site
-                        </a>
-                      ) : null}
-                    </div>
-                    <div>
-                      <h3 className="font-display text-xl">Profile</h3>
-                      <dl className="mt-2">
-                        <Fact label="Business" value={historySelected.profile.businessName || "—"} />
-                        <Fact label="Summary" value={historySelected.profile.summary || "—"} />
-                        <Fact label="Phone" value={historySelected.profile.phone || "—"} />
-                        <Fact label="Hours" value={formatHours(historySelected)} />
-                      </dl>
-                    </div>
-                    <div>
-                      <h3 className="font-display text-xl">Transcript</h3>
-                      <div className="mt-3 space-y-3">
-                        {historySelected.transcript?.length ? (
-                          <TranscriptBubbles lines={historySelected.transcript} />
-                        ) : (
-                          <p className="text-sm text-white/50">No transcript saved for this call.</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm text-white/50">Select a past call to review it.</p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <DirectoryPanel
+        open={directoryOpen}
+        voiceBaseUrl={voiceBaseUrl}
+        onClose={() => setDirectoryOpen(false)}
+      />
     </main>
   );
 }

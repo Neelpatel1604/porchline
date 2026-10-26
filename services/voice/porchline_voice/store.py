@@ -233,6 +233,118 @@ class Store:
             raise KeyError(project_id)
         return saved
 
+    def delete_project(self, project_id: str) -> bool:
+        cur = self._conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def delete_caller(self, caller_id: str) -> int:
+        cur = self._conn.execute("DELETE FROM projects WHERE caller_id = ?", (caller_id,))
+        self._conn.commit()
+        return int(cur.rowcount)
+
+    def list_projects_for_caller(self, caller_id: str) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM projects
+            WHERE caller_id = ?
+            ORDER BY updated_at DESC
+            """,
+            (caller_id,),
+        ).fetchall()
+        return [self._row(row) for row in rows]
+
+    def list_contacts(self) -> list[dict[str, Any]]:
+        """One row per caller with latest profile and call-frequency stats."""
+        self.close_stale_open_calls()
+        rows = self._conn.execute(
+            """
+            SELECT * FROM projects
+            ORDER BY updated_at DESC
+            """
+        ).fetchall()
+        by_caller: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            project = self._row(row)
+            caller = str(project.get("callerId") or "unknown")
+            by_caller.setdefault(caller, []).append(project)
+
+        contacts: list[dict[str, Any]] = []
+        for caller_id, projects in by_caller.items():
+            latest = projects[0]
+            # Prefer the newest project that actually has a business name for display/edit.
+            profile_source = latest
+            for project in projects:
+                profile_candidate = project.get("profile") if isinstance(project.get("profile"), dict) else {}
+                if str(profile_candidate.get("businessName") or "").strip():
+                    profile_source = project
+                    break
+            stamps: list[datetime] = []
+            for project in projects:
+                for key in ("callStartedAt", "createdAt", "updatedAt"):
+                    raw = project.get(key)
+                    if not raw:
+                        continue
+                    try:
+                        stamps.append(datetime.fromisoformat(str(raw).replace("Z", "+00:00")))
+                        break
+                    except ValueError:
+                        continue
+            stamps.sort()
+            first_at = stamps[0].isoformat() if stamps else latest.get("createdAt")
+            last_at = stamps[-1].isoformat() if stamps else latest.get("updatedAt")
+            avg_days: float | None = None
+            if len(stamps) >= 2:
+                span = (stamps[-1] - stamps[0]).total_seconds() / 86400.0
+                avg_days = round(span / (len(stamps) - 1), 1)
+
+            call_count = len(projects)
+            if call_count >= 4:
+                cadence = "Frequent"
+            elif call_count >= 2:
+                cadence = "Returning"
+            else:
+                cadence = "New"
+
+            profile = (
+                profile_source.get("profile")
+                if isinstance(profile_source.get("profile"), dict)
+                else {}
+            )
+            phone = str(profile.get("phone") or "").strip() or caller_id
+            contacts.append(
+                {
+                    "callerId": caller_id,
+                    "businessName": str(profile.get("businessName") or "").strip() or None,
+                    "phone": phone,
+                    "email": profile.get("email"),
+                    "category": profile.get("category") or None,
+                    "status": latest.get("status"),
+                    "previewUrl": latest.get("previewUrl") or profile_source.get("previewUrl"),
+                    "hostname": latest.get("hostname") or profile_source.get("hostname"),
+                    "latestProjectId": profile_source.get("id"),
+                    "callCount": call_count,
+                    "cadence": cadence,
+                    "avgDaysBetweenCalls": avg_days,
+                    "firstCallAt": first_at,
+                    "lastCallAt": last_at,
+                    "updatedAt": latest.get("updatedAt"),
+                    "profile": profile,
+                }
+            )
+
+        contacts.sort(key=lambda item: str(item.get("lastCallAt") or ""), reverse=True)
+        return contacts
+
+    def get_contact(self, caller_id: str) -> dict[str, Any] | None:
+        projects = self.list_projects_for_caller(caller_id)
+        if not projects:
+            return None
+        summary = next((item for item in self.list_contacts() if item["callerId"] == caller_id), None)
+        if summary is None:
+            return None
+        return {**summary, "projects": projects}
+
     def _row(self, row: sqlite3.Row) -> dict[str, Any]:
         return {
             "id": row["id"],

@@ -83,10 +83,10 @@ export default function DevCallPage() {
 
   return (
     <main className="stage-shell min-h-screen px-4 py-6 text-white md:px-8 md:py-8">
-      <header className="mx-auto flex max-w-3xl flex-wrap items-end justify-between gap-6 border-b border-white/10 pb-6">
+      <header className="mx-auto flex max-w-7xl flex-wrap items-end justify-between gap-6 border-b border-white/10 pb-6">
         <div>
-          <p className="font-display text-5xl tracking-tight md:text-6xl">Porchline</p>
-          <p className="mt-2 max-w-xl text-base text-white/65">
+          <p className="font-display text-5xl tracking-tight md:text-6xl pl-text">Porchline</p>
+          <p className="mt-2 max-w-xl text-base pl-muted">
             Dev mic — local Higgs path for rehearsal. Real owners still call through Twilio.
           </p>
         </div>
@@ -105,34 +105,52 @@ export default function DevCallPage() {
         </div>
       </header>
 
-      <section className="mx-auto mt-6 max-w-3xl">
-        <article className="rounded-3xl bg-[#171a22]/90 p-6 ring-1 ring-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.35)]">
-          <h1 className="font-display text-3xl tracking-tight">Mic call</h1>
-          <p className="mt-3 text-sm text-white/55">
-            This page only exists for local testing. Watch the live transcript on the operator desk while you speak.
-          </p>
-
-          <div className="mt-6 rounded-2xl bg-white/[0.04] px-4 py-3 text-sm text-white/80 ring-1 ring-white/10">
-            {status}
+      <section className="mx-auto mt-6 grid max-w-7xl gap-5 lg:grid-cols-[1.35fr_0.9fr] lg:items-stretch">
+        <article className="pl-panel flex min-h-[min(70vh,40rem)] flex-col overflow-hidden rounded-3xl">
+          <div className="border-b border-white/10 px-5 py-4">
+            <h1 className="font-display text-2xl tracking-tight pl-text">Mic call</h1>
+            <p className="mt-1 text-sm pl-muted">
+              Local testing only. Watch the live transcript on the operator desk while you speak.
+            </p>
           </div>
+          <div className="flex flex-1 flex-col gap-6 px-5 py-5">
+            <div className="pl-panel-inner rounded-2xl px-4 py-3 text-sm pl-text">{status}</div>
+            <div className="mt-auto flex flex-wrap gap-3">
+              <button
+                className="rounded-full bg-amber-400 px-5 py-2.5 text-sm font-semibold text-[#1a1208] hover:bg-amber-300 disabled:opacity-40"
+                disabled={live}
+                onClick={() => void start()}
+                type="button"
+              >
+                Start mic
+              </button>
+              <button
+                className="rounded-full border border-white/20 px-5 py-2.5 text-sm text-white/85 hover:bg-white/5 disabled:opacity-40"
+                disabled={!live}
+                onClick={stop}
+                type="button"
+              >
+                Hang up
+              </button>
+            </div>
+          </div>
+        </article>
 
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button
-              className="rounded-full bg-amber-400 px-5 py-2.5 text-sm font-semibold text-[#1a1208] hover:bg-amber-300 disabled:opacity-40"
-              disabled={live}
-              onClick={() => void start()}
-              type="button"
-            >
-              Start mic
-            </button>
-            <button
-              className="rounded-full border border-white/20 px-5 py-2.5 text-sm text-white/85 hover:bg-white/5 disabled:opacity-40"
-              disabled={!live}
-              onClick={stop}
-              type="button"
-            >
-              Hang up
-            </button>
+        <article className="pl-panel flex min-h-[min(70vh,40rem)] flex-col overflow-hidden rounded-3xl">
+          <div className="border-b border-white/10 px-5 py-4">
+            <h2 className="font-display text-2xl tracking-tight pl-text">How to use</h2>
+            <p className="mt-1 text-sm pl-muted">Same stage style as the operator desk</p>
+          </div>
+          <div className="panel-scroll flex-1 space-y-4 overflow-y-auto px-5 py-5 text-sm pl-muted">
+            <div className="pl-panel-inner rounded-2xl px-4 py-3">
+              Keep the homepage open on another tab to see transcript and saved profile update live.
+            </div>
+            <div className="pl-panel-inner rounded-2xl px-4 py-3">
+              Start mic, wait for the greeting, then speak as if you were the business owner.
+            </div>
+            <div className="pl-panel-inner rounded-2xl px-4 py-3">
+              Hang up here when you are done — the desk will clear Live once the socket ends.
+            </div>
           </div>
         </article>
       </section>

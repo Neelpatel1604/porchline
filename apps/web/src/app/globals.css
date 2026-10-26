@@ -6,13 +6,20 @@
   color-scheme: dark;
   --font-display: "Syne", Georgia, serif;
   --font-body: "Source Sans 3", "Segoe UI", sans-serif;
+  /* Shared surface + type tokens — use these instead of one-off hex per page */
+  --pl-ink: #f4f1ea;
+  --pl-muted: rgba(244, 241, 234, 0.55);
+  --pl-subtle: rgba(244, 241, 234, 0.45);
+  --pl-panel: #171a22;
+  --pl-panel-inner: rgba(255, 255, 255, 0.045);
+  --pl-line: rgba(255, 255, 255, 0.1);
 }
 
 body {
   margin: 0;
   font-family: var(--font-body);
   background: #0b0d12;
-  color: #f4f1ea;
+  color: var(--pl-ink);
 }
 
 .font-display {
@@ -24,6 +31,30 @@ body {
     radial-gradient(900px 420px at 12% -8%, rgba(232, 140, 48, 0.22), transparent 55%),
     radial-gradient(700px 380px at 92% 8%, rgba(64, 120, 180, 0.18), transparent 50%),
     linear-gradient(180deg, #12151d 0%, #0b0d12 55%, #090b10 100%);
+}
+
+/* Same panel look on homepage, directory, and dev mic */
+.pl-panel {
+  background: color-mix(in srgb, var(--pl-panel) 92%, transparent);
+  border: 1px solid var(--pl-line);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+}
+
+.pl-panel-inner {
+  background: var(--pl-panel-inner);
+  border: 1px solid var(--pl-line);
+}
+
+.pl-text {
+  color: var(--pl-ink);
+}
+
+.pl-muted {
+  color: var(--pl-muted);
+}
+
+.pl-subtle {
+  color: var(--pl-subtle);
 }
 
 .panel-scroll {
