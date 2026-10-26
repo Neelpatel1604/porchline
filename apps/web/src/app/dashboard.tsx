@@ -170,7 +170,8 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
         const payload = JSON.parse(event.data) as { project?: Project };
         if (payload.project) setProject(payload.project);
       };
-      source.onerror = () => setVoiceError("Live updates disconnected. They reconnect on the next refresh.");
+      source.onerror = () =>
+        setVoiceError("We're having trouble keeping the live stage in sync. We'll be right back.");
     }
 
     async function load() {
@@ -187,7 +188,9 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
           setFollowLatest(true);
         }
       } catch {
-        if (!cancelled) setVoiceError("Voice service is not running on " + voiceBaseUrl);
+        if (!cancelled) {
+          setVoiceError("We're facing a temporary issue with the live stage. We'll be right back.");
+        }
       }
     }
 
