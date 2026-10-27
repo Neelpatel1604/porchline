@@ -91,6 +91,15 @@ def _boson_message(event_type: Any, event: Any) -> str | None:
     return None
 
 
+def _transcription_config() -> dict[str, Any]:
+    """STT for the dashboard. No language hint = auto-detect (matches Higgs realtime)."""
+    config: dict[str, Any] = {"model": "higgs-stt-3.1"}
+    hint = (os.environ.get("BOSON_STT_LANGUAGE") or "").strip().lower()
+    if hint and hint not in {"auto", "detect", "*"}:
+        config["language"] = hint
+    return config
+
+
 def _instructions(caller: str | None, profile: dict[str, Any] | None = None) -> str:
     parts = [INSTRUCTIONS]
     if caller and caller not in {"unknown", "dev-mic"}:
@@ -153,14 +162,14 @@ async def _run_pipeline(
             content = (
                 "[Porchline system] The website publish just finished successfully. "
                 f"Preview URL: {preview}. {sms_bit} "
-                "Say casually that it looks like their site is up, mention the text if it sent, "
+                "In the caller's language, casually say their site is up, mention the text if it sent, "
                 "then a short goodbye and call end_call."
             )
         else:
             content = (
                 "[Porchline system] Publish failed. "
                 f"Detail: {result.get('message') or 'unknown error'}. "
-                "Tell them their details are saved and publish needs another try later. "
+                "In the caller's language, tell them their details are saved and publish needs another try later. "
                 "Offer goodbye and end_call if they are done."
             )
         try:
@@ -200,7 +209,8 @@ async def _run_pipeline(
             "silence_duration_ms": 1800,
             "threshold": 0.55,
         },
-        input_audio_transcription={"model": "higgs-stt-3.1", "language": "en"},
+        # Omit language so higgs-stt-3.1 auto-detects; optional ISO-639-1 hint via env.
+        input_audio_transcription=_transcription_config(),
         input_audio_noise_reduction="near_field",
     )
 
