@@ -176,6 +176,23 @@ class Store:
             raise KeyError(project_id)
         return saved
 
+    def append_note(self, project_id: str, role: str, text: str) -> dict[str, Any]:
+        """Append an operation line without reopening a call that already ended."""
+        project = self.get(project_id)
+        if project is None:
+            raise KeyError(project_id)
+        transcript = project["transcript"]
+        transcript.append({"role": role, "text": text, "at": _now()})
+        self._conn.execute(
+            "UPDATE projects SET transcript_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(transcript), _now(), project_id),
+        )
+        self._conn.commit()
+        saved = self.get(project_id)
+        if saved is None:
+            raise KeyError(project_id)
+        return saved
+
     def mark_call_started(self, project_id: str) -> None:
         now = _now()
         self._conn.execute(

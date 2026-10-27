@@ -11,6 +11,7 @@ import os
 import re
 import time
 import zipfile
+from collections.abc import Callable
 from html import escape
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -288,10 +289,25 @@ def _gemini_site(profile: dict[str, Any]) -> dict[str, Any]:
     return {**bundle, "source": "gemini"}
 
 
-def _build_site(profile: dict[str, Any]) -> dict[str, Any]:
+def _build_site(
+    profile: dict[str, Any],
+    on_log: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    def note(text: str) -> None:
+        if on_log is None:
+            return
+        try:
+            on_log(text)
+        except Exception:  # noqa: BLE001
+            pass
+
+    note("Gemini · drafting the website")
     try:
-        return _gemini_site(profile)
+        bundle = _gemini_site(profile)
+        note("Gemini · draft is ready")
+        return bundle
     except Exception as exc:  # noqa: BLE001 - fall back to template for the phone path
+        note(f"Gemini · could not finish ({exc}). Using the backup page.")
         fallback = _template_site(profile)
         return {
             **fallback,
@@ -372,6 +388,8 @@ def publish_profile_local(
     project_id: str,
     profile: dict[str, Any],
     netlify_site_id: str | None = None,
+    on_stage: Callable[[str], None] | None = None,
+    on_log: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     missing = missing_for_publish(profile)
     if missing:
@@ -384,11 +402,31 @@ def publish_profile_local(
     if not token:
         return {"status": "error", "projectId": project_id, "message": "Missing NETLIFY_AUTH_TOKEN"}
 
+    def stage(name: str) -> None:
+        if on_stage is None:
+            return
+        try:
+            on_stage(name)
+        except Exception:  # noqa: BLE001 - stage updates must not fail the deploy
+            pass
+
+    def note(text: str) -> None:
+        if on_log is None:
+            return
+        try:
+            on_log(text)
+        except Exception:  # noqa: BLE001
+            pass
+
     try:
-        rendered = _build_site(profile)
+        stage("designing")
+        rendered = _build_site(profile, on_log)
+        stage("deploying")
+        note("Netlify · bringing the site up")
         site_name = f"porchline-{_slug(profile)}"[:50]
         site = _ensure_site(token, netlify_site_id, site_name)
         _deploy_zip(token, str(site["id"]), rendered)
+        note("Netlify · upload accepted")
         hostname = _netlify_host(site)
         preview_url = site.get("ssl_url") or f"https://{hostname}"
         return {

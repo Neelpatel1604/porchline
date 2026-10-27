@@ -47,8 +47,8 @@ function isCallLive(project: Project | null): boolean {
 function statusLabel(project: Project | null, live: boolean, elapsed: string | null): string {
   if (!project) return "Waiting for a call";
   if (live && elapsed) return `Live · ${elapsed}`;
-  if (project.status === "designing") return "Designing site";
-  if (project.status === "deploying") return "Publishing";
+  if (project.status === "designing") return "Designing the page";
+  if (project.status === "deploying") return "Publishing to Netlify";
   if (project.status === "deployed") return "Published";
   if (project.status === "error") return "Error";
   return "No live call";
@@ -70,6 +70,7 @@ function roleLabel(role: string): string {
   if (value === "owner" || value === "user") return "Owner";
   if (value === "agent" || value === "assistant") return "Agent";
   if (value === "save" || value === "system") return "Saved to DB";
+  if (value === "step") return "Step";
   return role;
 }
 
@@ -81,6 +82,23 @@ function isOwner(role: string): boolean {
 function isSaveNote(role: string): boolean {
   const value = role.toLowerCase();
   return value === "save" || value === "system";
+}
+
+function isStep(role: string): boolean {
+  return role.toLowerCase() === "step";
+}
+
+const PUBLISH_STAGES = [
+  { id: "designing", label: "Designing the page", hint: "Usually 1–2 min" },
+  { id: "deploying", label: "Publishing to Netlify", hint: "Usually under 1 min" },
+  { id: "deployed", label: "Live", hint: "Link is ready" },
+] as const;
+
+function publishStageIndex(status: string): number {
+  if (status === "designing") return 0;
+  if (status === "deploying") return 1;
+  if (status === "deployed") return 2;
+  return -1;
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
@@ -98,6 +116,7 @@ function TranscriptBubbles({ lines, follow }: { lines: TranscriptLine[]; follow?
       {lines.map((line, index) => {
         const owner = isOwner(line.role);
         const saved = isSaveNote(line.role);
+        const step = isStep(line.role);
         return (
           <div
             key={`${line.at}-${index}`}
@@ -105,16 +124,24 @@ function TranscriptBubbles({ lines, follow }: { lines: TranscriptLine[]; follow?
           >
             <div
               className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                saved
-                  ? "bg-emerald-500/15 text-emerald-50 ring-1 ring-emerald-300/30"
-                  : owner
-                    ? "bg-amber-400 text-[#1a1208]"
-                    : "bg-white/8 text-white ring-1 ring-white/10"
+                step
+                  ? "bg-sky-400/15 text-sky-50 ring-1 ring-sky-300/30"
+                  : saved
+                    ? "bg-emerald-500/15 text-emerald-50 ring-1 ring-emerald-300/30"
+                    : owner
+                      ? "bg-amber-400 text-[#1a1208]"
+                      : "bg-white/8 text-white ring-1 ring-white/10"
               }`}
             >
               <p
                 className={`text-[0.68rem] font-semibold uppercase tracking-[0.14em] ${
-                  saved ? "text-emerald-200/90" : owner ? "text-[#5c3b10]" : "text-amber-200/80"
+                  step
+                    ? "text-sky-200/90"
+                    : saved
+                      ? "text-emerald-200/90"
+                      : owner
+                        ? "text-[#5c3b10]"
+                        : "text-amber-200/80"
                 }`}
               >
                 {roleLabel(line.role)}
@@ -195,6 +222,14 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
     return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
   }, [live, now, project?.callStartedAt]);
 
+  const publishElapsed = useMemo(() => {
+    if (!project?.updatedAt) return null;
+    if (project.status !== "designing" && project.status !== "deploying") return null;
+    const seconds = Math.max(0, Math.floor((now - Date.parse(project.updatedAt)) / 1000));
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+  }, [now, project?.status, project?.updatedAt]);
+
   useEffect(() => {
     if (!followLatest) return;
     const pane = transcriptPaneRef.current;
@@ -239,7 +274,7 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
                 <p className="text-sm pl-muted">
                   {showCallData
                     ? followLatest
-                      ? "Following latest - green lines are DB saves"
+                      ? "Following latest - green is a save, blue is a step"
                       : "Scroll follow paused"
                     : "Appears when a call is in progress"}
                 </p>
@@ -339,20 +374,46 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
                   Open site
                 </a>
               ) : null}
-              {inFlight && project ? (
+              {showCallData && project && publishStageIndex(project.status) >= 0 ? (
                 <div className="mt-4 space-y-3 rounded-2xl bg-amber-400/15 p-4 ring-1 ring-amber-300/30">
-                  <p className="text-sm text-amber-50">
-                    {project.status === "designing"
-                      ? "Gemini is designing the site, then Netlify will publish it."
-                      : "Publishing to Netlify…"}
-                  </p>
-                  <button
-                    className="rounded-full border border-amber-200/40 px-4 py-2 text-sm text-amber-50"
-                    onClick={cancelPublish}
-                    type="button"
-                  >
-                    Cancel publish
-                  </button>
+                  <ol className="space-y-2">
+                    {PUBLISH_STAGES.map((stage, index) => {
+                      const current = publishStageIndex(project.status);
+                      const done = index < current;
+                      const active = index === current;
+                      return (
+                        <li key={stage.id} className="flex items-start gap-3 text-sm">
+                          <span
+                            className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.7rem] font-semibold ${
+                              done
+                                ? "bg-emerald-400 text-[#052016]"
+                                : active
+                                  ? "bg-amber-300 text-[#1a1208]"
+                                  : "bg-white/10 text-white/50"
+                            }`}
+                          >
+                            {done ? "✓" : index + 1}
+                          </span>
+                          <span className={active ? "text-amber-50" : done ? "text-emerald-100" : "text-white/45"}>
+                            <span className="block font-medium">
+                              {stage.label}
+                              {active && publishElapsed ? ` · ${publishElapsed}` : ""}
+                            </span>
+                            <span className="block text-xs opacity-80">{active ? "In progress" : stage.hint}</span>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  {inFlight ? (
+                    <button
+                      className="rounded-full border border-amber-200/40 px-4 py-2 text-sm text-amber-50"
+                      onClick={cancelPublish}
+                      type="button"
+                    >
+                      Cancel publish
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </div>

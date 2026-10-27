@@ -25,6 +25,63 @@ except ImportError:  # pragma: no cover - allows unit tests before pipecat is im
 EndCallFn = Callable[[], Awaitable[None]]
 PublishDoneFn = Callable[[dict[str, Any]], Awaitable[None]]
 
+TOOL_LABELS = {
+    "save_business_basics": "Save business",
+    "save_contact": "Save contact",
+    "save_hours": "Save hours",
+    "add_service": "Add service",
+    "save_site_style": "Save style",
+    "clear_field": "Clear field",
+    "read_profile": "Read profile",
+    "publish_profile": "Publish",
+    "check_publish_status": "Check publish",
+    "end_call": "End call",
+}
+
+# Gemini is allowed 150s and Netlify 60s. Stop the job before a stuck request
+# can sit on "designing" for the old 5-minute idle window.
+PUBLISH_TIMEOUT_SECS = 240
+
+
+def _tool_label(name: str) -> str:
+    return TOOL_LABELS.get(name, name)
+
+
+def _brief_args(arguments: Any) -> str:
+    if not isinstance(arguments, dict):
+        return ""
+    parts: list[str] = []
+    for key, value in arguments.items():
+        if value is None or value == "" or value == {} or value == []:
+            continue
+        text = value if isinstance(value, str) else str(value)
+        parts.append(f"{key}={text[:80]}")
+        if len(parts) == 4:
+            break
+    return "; ".join(parts)
+
+
+def _brief_result(result: Any) -> str:
+    if not isinstance(result, dict):
+        return str(result)[:180]
+    parts: list[str] = []
+    for key in ("ok", "status", "started", "saved", "cleared", "count", "missing", "message"):
+        value = result.get(key)
+        if value is None or value == "" or value == [] or value == {}:
+            continue
+        text = value if isinstance(value, str) else str(value)
+        parts.append(f"{key}={text[:120]}")
+    return "; ".join(parts) or "done"
+
+
+def _running_message(stage: str) -> str:
+    where = "uploading" if stage == "deploying" else "designing"
+    return (
+        f"Internal stage is {where}. That status is for the operator desk only. "
+        "Do not tell the caller about drafting, Gemini, or uploading. "
+        "Keep light small talk. Do not call publish_profile again."
+    )
+
 
 def _parse_day(value: str) -> dict[str, Any]:
     text = value.strip().lower()
@@ -58,17 +115,45 @@ class ToolKit:
 
     def handlers(self) -> list[Any]:
         return [
-            self.save_business_basics,
-            self.save_contact,
-            self.save_hours,
-            self.add_service,
-            self.save_site_style,
-            self.clear_field,
-            self.read_profile,
-            self.publish_profile,
-            self.check_publish_status,
-            self.end_call,
+            self._watch(self.save_business_basics),
+            self._watch(self.save_contact),
+            self._watch(self.save_hours),
+            self._watch(self.add_service),
+            self._watch(self.save_site_style),
+            self._watch(self.clear_field),
+            self._watch(self.read_profile),
+            self._watch(self.publish_profile),
+            self._watch(self.check_publish_status),
+            self._watch(self.end_call),
         ]
+
+    def _watch(self, handler: Callable[..., Awaitable[None]]) -> Callable[..., Awaitable[None]]:
+        """Record each tool call on the live transcript without changing the tool itself."""
+
+        async def wrapped(params: FunctionCallParams) -> None:
+            name = handler.__name__
+            label = _tool_label(name)
+            args = _brief_args(getattr(params, "arguments", {}) or {})
+            self._log_step(f"{label} · {args}" if args else f"{label} · called")
+            original = params.result_callback
+
+            async def callback(result: Any) -> None:
+                self._log_step(f"{label} · {_brief_result(result)}")
+                await original(result)
+
+            params.result_callback = callback
+            await handler(params)
+
+        wrapped.__name__ = handler.__name__
+        wrapped.__doc__ = handler.__doc__
+        return wrapped
+
+    def _log_step(self, text: str) -> None:
+        try:
+            project = self.store.append_note(self.project_id, "step", text[:400])
+            self.hub.publish(self.project_id, {"type": "transcript", "project": project})
+        except Exception:  # noqa: BLE001 - the call should continue if the log write fails
+            pass
 
     def _profile(self) -> dict[str, Any]:
         project = self.store.get(self.project_id)
@@ -408,27 +493,13 @@ class ToolKit:
             )
             return
         if self._publish_task and not self._publish_task.done():
+            stage = (existing or {}).get("status") or "designing"
             await params.result_callback(
                 {
                     "ok": True,
                     "started": True,
-                    "message": (
-                        "Publish is already running. Keep chatting lightly about their business "
-                        "(services, hours, neighborhood). Do not call publish_profile again. "
-                        "You will be told when the site is live."
-                    ),
-                }
-            )
-            return
-        if existing and existing.get("status") in {"designing", "deploying"}:
-            await params.result_callback(
-                {
-                    "ok": True,
-                    "started": True,
-                    "message": (
-                        "Publish is already running. Keep light small talk about the business. "
-                        "Do not call publish_profile again."
-                    ),
+                    "status": stage,
+                    "message": _running_message(str(stage)),
                 }
             )
             return
@@ -459,29 +530,71 @@ class ToolKit:
                 "ok": True,
                 "started": True,
                 "message": (
-                    "Publish started in the background. Say you are building their site now. "
-                    "Then make light small talk about THEIR business only - services, hours, "
-                    "neighborhood, who they serve. Do not invent new facts. Do not call "
-                    "publish_profile again. When you hear the site is live, celebrate briefly, "
-                    "mention the text with the link, then goodbye and end_call."
+                    "Publish started in the background. The stage log is for the operator desk only. "
+                    "Do not tell the caller about drafting, Gemini, or uploading. "
+                    "Say you are building their site, then light small talk about THEIR business only. "
+                    "Do not call publish_profile again."
                 ),
             }
         )
 
+    def _apply_stage(self, stage: str) -> None:
+        try:
+            saved = self.store.set_status(self.project_id, stage, None)
+            self.hub.publish(self.project_id, {"type": "status", "project": saved})
+        except Exception:  # noqa: BLE001 - dashboard stage is best-effort
+            pass
+
     async def _run_publish_job(self, project: dict[str, Any]) -> None:
         profile = project.get("profile") if isinstance(project.get("profile"), dict) else {}
+        loop = asyncio.get_running_loop()
+        stopped = False
+
+        def on_stage(stage: str) -> None:
+            if stopped:
+                return
+            loop.call_soon_threadsafe(self._apply_stage, stage)
+
+        def on_log(text: str) -> None:
+            if stopped:
+                return
+            loop.call_soon_threadsafe(self._log_step, text)
+
         try:
             async with self._publish_lock:
-                result = await asyncio.to_thread(
-                    publish_profile_local,
-                    project_id=self.project_id,
-                    profile=profile,
-                    netlify_site_id=project.get("netlifySiteId"),
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        publish_profile_local,
+                        project_id=self.project_id,
+                        profile=profile,
+                        netlify_site_id=project.get("netlifySiteId"),
+                        on_stage=on_stage,
+                        on_log=on_log,
+                    ),
+                    timeout=PUBLISH_TIMEOUT_SECS,
                 )
+        except TimeoutError:
+            stopped = True
+            self._log_step("Publish · timed out after 4 minutes")
+            result = {
+                "status": "error",
+                "projectId": self.project_id,
+                "message": "Publish timed out after 4 minutes. The profile is saved.",
+            }
+        except asyncio.CancelledError:
+            try:
+                failed = self.store.set_status(
+                    self.project_id, "error", "Publish was interrupted"
+                )
+                self.hub.publish(self.project_id, {"type": "error", "project": failed})
+            except Exception:  # noqa: BLE001
+                pass
+            raise
         except Exception as exc:  # noqa: BLE001
             result = {"status": "error", "projectId": self.project_id, "message": str(exc)}
 
         if result.get("status") == "error":
+            self._log_step(f"Publish · failed ({result.get('message')})")
             failed = self.store.set_status(self.project_id, "error", result.get("message"))
             self.hub.publish(self.project_id, {"type": "error", "project": failed})
             self._publish_result = {
@@ -504,6 +617,9 @@ class ToolKit:
             to_number=sms_to,
             preview_url=str(result.get("previewUrl") or ""),
             business_name=str(profile.get("businessName") or ""),
+        )
+        self._log_step(
+            "Text · link sent" if sms.get("ok") else f"Text · not sent ({sms.get('message')})"
         )
         self._publish_result = {
             "ok": True,
@@ -552,15 +668,41 @@ class ToolKit:
             )
             return
         running = bool(self._publish_task and not self._publish_task.done())
+        status = str((existing or {}).get("status") or "idle")
+        if running:
+            await params.result_callback(
+                {
+                    "ok": True,
+                    "status": status if status in {"designing", "deploying"} else "designing",
+                    "message": _running_message(status),
+                }
+            )
+            return
+        if status in {"designing", "deploying"}:
+            failed = self.store.set_status(
+                self.project_id,
+                "error",
+                "Publish stopped before the site went live",
+            )
+            self.hub.publish(self.project_id, {"type": "error", "project": failed})
+            await params.result_callback(
+                {
+                    "ok": False,
+                    "status": "error",
+                    "message": (
+                        "The last publish stopped before the site went live. "
+                        "Tell them that. If they want another try, call publish_profile."
+                    ),
+                }
+            )
+            return
         await params.result_callback(
             {
                 "ok": True,
-                "status": "designing" if running else (existing or {}).get("status") or "idle",
+                "status": status,
                 "message": (
-                    "Still publishing. Keep light small talk about their business. "
-                    "Do not call publish_profile again."
-                    if running
-                    else "No publish in progress."
+                    "No publish is running. The site has not started. "
+                    "Do not say it is drafting or publishing."
                 ),
             }
         )

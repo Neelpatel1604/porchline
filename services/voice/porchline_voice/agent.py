@@ -260,6 +260,11 @@ async def _run_pipeline(
             audio_out_sample_rate=SAMPLE_RATE,
             enable_metrics=True,
         ),
+        # Default idle timeout is 300s and cancels the call. Higgs turn events
+        # do not reset that timer, so a quiet publish wait dies at 5 minutes
+        # and the site is left stuck on "designing".
+        idle_timeout_secs=None,
+        cancel_on_idle_timeout=False,
     )
 
     def mark_ended() -> None:
@@ -275,6 +280,10 @@ async def _run_pipeline(
     async def on_client_disconnected(_transport, _client):
         # Do not wait for a blocked publish tool - clear Live as soon as the socket drops.
         mark_ended()
+        try:
+            await worker.cancel(reason="caller hung up")
+        except Exception:  # noqa: BLE001 - worker may already be finished
+            pass
 
     runner = WorkerRunner()
     await runner.add_workers(worker)
