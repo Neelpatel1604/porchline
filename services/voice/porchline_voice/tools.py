@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -45,6 +46,28 @@ PUBLISH_TIMEOUT_SECS = 240
 
 def _tool_label(name: str) -> str:
     return TOOL_LABELS.get(name, name)
+
+
+def _fold_name(name: str) -> str:
+    return name.lower().replace("_", "")
+
+
+def _align_call(signature: inspect.Signature, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Map tool arguments onto the real parameter names.
+
+    The model sometimes sends business_name for a parameter named businessName.
+    """
+    names = [name for name in signature.parameters if name != "self"]
+    folded = {_fold_name(name): name for name in names}
+    aligned: dict[str, Any] = {}
+    for key, value in kwargs.items():
+        if key in signature.parameters:
+            aligned[key] = value
+            continue
+        match = folded.get(_fold_name(key))
+        if match is not None:
+            aligned[match] = value
+    return aligned
 
 
 def _brief_args(arguments: Any) -> str:
@@ -128,24 +151,35 @@ class ToolKit:
         ]
 
     def _watch(self, handler: Callable[..., Awaitable[None]]) -> Callable[..., Awaitable[None]]:
-        """Record each tool call on the live transcript without changing the tool itself."""
+        """Record each tool call without hiding the parameters Pipecat advertises."""
+        signature = inspect.signature(handler)
 
-        async def wrapped(params: FunctionCallParams) -> None:
+        async def wrapped(**kwargs: Any) -> None:
+            params = kwargs.get("params")
             name = handler.__name__
             label = _tool_label(name)
-            args = _brief_args(getattr(params, "arguments", {}) or {})
-            self._log_step(f"{label} · {args}" if args else f"{label} · called")
-            original = params.result_callback
+            raw = {
+                key: value
+                for key, value in kwargs.items()
+                if key != "params"
+            }
+            if params is not None and isinstance(getattr(params, "arguments", None), dict):
+                raw = {**params.arguments, **raw}
+            self._log_step(f"{label} · {_brief_args(raw) or 'called'}")
+            if params is not None and hasattr(params, "result_callback"):
+                original = params.result_callback
 
-            async def callback(result: Any) -> None:
-                self._log_step(f"{label} · {_brief_result(result)}")
-                await original(result)
+                async def callback(result: Any) -> None:
+                    self._log_step(f"{label} · {_brief_result(result)}")
+                    await original(result)
 
-            params.result_callback = callback
-            await handler(params)
+                params.result_callback = callback
+            await handler(**_align_call(signature, kwargs))
 
+        wrapped.__signature__ = signature  # type: ignore[attr-defined]
         wrapped.__name__ = handler.__name__
         wrapped.__doc__ = handler.__doc__
+        wrapped.__annotations__ = dict(getattr(handler, "__annotations__", {}))
         return wrapped
 
     def _log_step(self, text: str) -> None:

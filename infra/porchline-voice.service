@@ -1,0 +1,15 @@
+[Unit]
+Description=Porchline voice service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/porchline
+ExecStart=/home/ubuntu/porchline/.venv/bin/uvicorn porchline_voice.main:app --host 127.0.0.1 --port 8000 --app-dir services/voice
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
