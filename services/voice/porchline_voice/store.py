@@ -45,8 +45,10 @@ class Store:
             self._conn.commit()
         # Older DBs may still have unused cname_target / cloudflare_record_id columns.
 
-    def close_stale_open_calls(self, max_idle_seconds: int = 25) -> None:
-        """Mark abandoned sockets as ended so the dashboard never shows a fake live call."""
+    def close_stale_open_calls(self, max_idle_seconds: int = 900) -> None:
+        """Mark truly abandoned sockets as ended. Keep this long - phone turns often
+        go quiet for minutes while the agent speaks or waits, and hangup already
+        sets call_ended_at via disconnect / connect-ended."""
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=max_idle_seconds)).isoformat()
         self._conn.execute(
             """
@@ -159,8 +161,13 @@ class Store:
             raise KeyError(project_id)
         transcript = project["transcript"]
         transcript.append({"role": role, "text": text, "at": _now()})
+        # New speech means the call is still open - reopen if a stale-close raced ahead.
         self._conn.execute(
-            "UPDATE projects SET transcript_json = ?, updated_at = ? WHERE id = ?",
+            """
+            UPDATE projects
+            SET transcript_json = ?, updated_at = ?, call_ended_at = NULL
+            WHERE id = ?
+            """,
             (json.dumps(transcript), _now(), project_id),
         )
         self._conn.commit()

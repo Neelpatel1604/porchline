@@ -37,15 +37,11 @@ type Project = {
   updatedAt?: string | null;
 };
 
-/** Safety net only - real hangup should set callEndedAt via Twilio connect-ended / disconnect. */
-const LIVE_IDLE_MS = 20_000;
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
-function isCallLive(project: Project | null, now: number): boolean {
-  if (!project?.callStartedAt || project.callEndedAt) return false;
-  const stamp = Date.parse(project.updatedAt || project.callStartedAt);
-  if (!Number.isFinite(stamp)) return false;
-  return now - stamp < LIVE_IDLE_MS;
+/** Live while started and not ended. Hangup (Twilio disconnect / connect-ended) sets callEndedAt. */
+function isCallLive(project: Project | null): boolean {
+  return Boolean(project?.callStartedAt && !project.callEndedAt);
 }
 
 function statusLabel(project: Project | null, live: boolean, elapsed: string | null): string {
@@ -190,7 +186,7 @@ export function Dashboard({ voiceBaseUrl }: { voiceBaseUrl: string }) {
     };
   }, [voiceBaseUrl]);
 
-  const live = isCallLive(project, now);
+  const live = isCallLive(project);
 
   const elapsed = useMemo(() => {
     if (!live || !project?.callStartedAt) return null;
